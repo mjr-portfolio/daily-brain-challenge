@@ -29,6 +29,8 @@ async def test_guest_correct_no_persistence(client, session, today_utc) -> None:
     assert body["time_taken_seconds"] == 42
     assert body["percentile"] is None
     assert body["score"] is None
+    assert body["correct_answer"] == 9
+    assert body["explanation"] == "Each row increases by 1, so the blank is 9."
 
     after = await session.scalar(select(func.count()).select_from(UserCompletion))
     assert after == before
@@ -47,6 +49,8 @@ async def test_guest_incorrect_no_persistence(client, session, today_utc) -> Non
     body = response.json()
     assert body["is_correct"] is False
     assert body["percentile"] is None
+    assert body["correct_answer"] == 9
+    assert isinstance(body["explanation"], str)
 
     after = await session.scalar(select(func.count()).select_from(UserCompletion))
     assert after == before
@@ -69,6 +73,8 @@ async def test_auth_correct_official_persists_and_percentile(client, session, to
     assert body["score"] == 100
     assert isinstance(body["percentile"], float)
     assert body["percentile"] == 100.0
+    assert body["correct_answer"] == 9
+    assert body["explanation"]
 
     row = await session.scalar(
         select(UserCompletion).where(
@@ -100,6 +106,8 @@ async def test_auth_incorrect_persists_without_percentile(client, session, today
     assert body["score"] == 0
     assert body["percentile"] is None
     assert body["is_daily_official"] is True
+    assert body["correct_answer"] == 9
+    assert body["explanation"]
 
     row = await session.scalar(
         select(UserCompletion).where(

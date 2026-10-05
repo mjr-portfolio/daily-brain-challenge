@@ -1,12 +1,13 @@
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+AnswerType = int | str | list[int | str]
+
 
 class CompletionCreate(BaseModel):
-    answer: Any
+    answer: AnswerType
     time_taken_seconds: int = Field(ge=0)
 
 
@@ -24,10 +25,12 @@ class CompletionRead(BaseModel):
 
 
 class SubmitResult(BaseModel):
-    """Shared guest + auth response contract for Phase 2 submit endpoint."""
+    """Shared guest + auth response contract for the submit endpoint."""
 
     is_correct: bool
     time_taken_seconds: int
+    correct_answer: AnswerType
+    explanation: str
     percentile: float | None = None
     score: int | None = None
     is_daily_official: bool | None = None

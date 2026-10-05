@@ -2,20 +2,17 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import CurrentUser, DbSession, OptionalUser
-from app.models.user_completion import UserCompletion
 from app.schemas.puzzle import PuzzleRead
 from app.schemas.user_completion import CompletionCreate, SubmitResult
-from app.services.percentile import compute_official_percentile
 from app.services.puzzles import (
     get_daily_puzzle,
     get_next_archive_puzzle,
     get_puzzle_by_id,
     to_puzzle_read,
 )
-from app.services.verification import compute_score, is_daily_official, verify_answer
+from app.services.verification import verify_and_record_submission
 
 router = APIRouter(prefix="/puzzles", tags=["puzzles"])
 
@@ -49,53 +46,13 @@ async def submit_puzzle(
             detail="Puzzle not found",
         )
 
-    is_correct = verify_answer(puzzle, payload.answer)
-
-    if current_user is None:
-        return SubmitResult(
-            is_correct=is_correct,
-            time_taken_seconds=payload.time_taken_seconds,
-            percentile=None,
-            score=None,
-            is_daily_official=None,
-        )
-
-    today = _today_utc()
-    official = is_daily_official(puzzle, today)
-    score = compute_score(is_correct)
-
-    completion = UserCompletion(
-        user_id=current_user.id,
-        puzzle_id=puzzle.id,
-        is_correct=is_correct,
-        score=score,
-        time_taken_seconds=payload.time_taken_seconds,
-        is_daily_official=official,
-    )
-    db.add(completion)
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Puzzle already completed by this user",
-        ) from exc
-
-    percentile = None
-    if official and is_correct:
-        percentile = await compute_official_percentile(
-            db,
-            puzzle_id=puzzle.id,
-            time_taken_seconds=payload.time_taken_seconds,
-        )
-
-    return SubmitResult(
-        is_correct=is_correct,
-        time_taken_seconds=payload.time_taken_seconds,
-        percentile=percentile,
-        score=score,
-        is_daily_official=official,
+    return await verify_and_record_submission(
+        db,
+        puzzle,
+        payload.answer,
+        payload.time_taken_seconds,
+        current_user,
+        _today_utc(),
     )
 
 

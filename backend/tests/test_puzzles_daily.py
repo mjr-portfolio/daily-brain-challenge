@@ -17,6 +17,9 @@ async def test_daily_returns_puzzle_without_solution_hash(client, session, today
     assert "content" in body
     assert "solution_hash" not in body
     assert "solution" not in body
+    assert "explanation" not in body
+    assert "explanation" not in body["content"]
+    assert "solution" not in body["content"]
 
 
 @pytest.mark.asyncio

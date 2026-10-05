@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ApiError } from '@/api/client.ts'
 import { PatternBoard } from '@/components/PatternBoard.tsx'
 import { SubmissionModal } from '@/components/SubmissionModal.tsx'
@@ -9,8 +10,12 @@ import { useDailyPuzzle } from '@/hooks/useDailyPuzzle.ts'
 import { useSubmitPuzzle } from '@/hooks/useSubmitPuzzle.ts'
 import { useTimer } from '@/hooks/useTimer.ts'
 import { isPatternPuzzle, type Puzzle } from '@/types/puzzle.ts'
-import type { SubmitResult } from '@/types/submit.ts'
-import { bumpStreakIfDaily, recordGuestCompletion } from '@/utils/storage.ts'
+import type { AnswerType, SubmitResult } from '@/types/submit.ts'
+import {
+  bumpStreakIfDaily,
+  hasCompletedDailyLocally,
+  recordGuestCompletion,
+} from '@/utils/storage.ts'
 
 type PuzzleMode = 'daily' | 'archive'
 
@@ -46,41 +51,67 @@ export function PuzzleContainer({ mode }: { mode: PuzzleMode }) {
 
   if (!query.data) return <StatusCard title="No puzzle available." />
 
+  if (
+    mode === 'daily' &&
+    query.data.assigned_date &&
+    hasCompletedDailyLocally(query.data.assigned_date)
+  ) {
+    return <CompletedDailyCard />
+  }
+
   return <PuzzleSession key={query.data.id} mode={mode} puzzle={query.data} />
 }
 
 function PuzzleSession({ mode, puzzle }: { mode: PuzzleMode; puzzle: Puzzle }) {
-  const { isAuthenticated } = useAuth()
   const submit = useSubmitPuzzle()
   const [result, setResult] = useState<SubmitResult | null>(null)
+  const [selectedAnswer, setSelectedAnswer] = useState<AnswerType | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
-  const timer = useTimer(result == null)
+  const [showCompleted, setShowCompleted] = useState(false)
+  const timer = useTimer(result == null && !showCompleted)
 
   async function handleSubmit(answer: string | number) {
     const seconds = timer.stop()
+    setSelectedAnswer(answer)
     setSubmitError(null)
     try {
       const response = await submit.mutateAsync({
         id: puzzle.id,
         payload: { answer, time_taken_seconds: seconds },
       })
-      if (!isAuthenticated && mode === 'daily') {
+      recordGuestCompletion({
+        puzzleId: puzzle.id,
+        assignedDate: puzzle.assigned_date,
+        timeTakenSeconds: seconds,
+        answer,
+        isCorrect: response.is_correct,
+      })
+      bumpStreakIfDaily(puzzle.id, puzzle.assigned_date, response.is_correct)
+      setResult(response)
+      setModalOpen(true)
+    } catch (error) {
+      if (
+        mode === 'daily' &&
+        error instanceof ApiError &&
+        error.status === 409 &&
+        puzzle.assigned_date
+      ) {
         recordGuestCompletion({
           puzzleId: puzzle.id,
           assignedDate: puzzle.assigned_date,
           timeTakenSeconds: seconds,
           answer,
-          isCorrect: response.is_correct,
+          isCorrect: false,
         })
-        bumpStreakIfDaily(puzzle.id, puzzle.assigned_date, response.is_correct)
+        setShowCompleted(true)
+        return
       }
-      setResult(response)
-      setModalOpen(true)
-    } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Submission failed')
     }
   }
+
+  if (showCompleted) return <CompletedDailyCard />
 
   const phase = submitError ? 'error' : result ? 'submitted' : 'active'
 
@@ -115,6 +146,7 @@ function PuzzleSession({ mode, puzzle }: { mode: PuzzleMode; puzzle: Puzzle }) {
         open={modalOpen && phase === 'submitted'}
         mode={mode}
         result={result}
+        selectedAnswer={selectedAnswer}
         onClose={() => setModalOpen(false)}
       />
     </section>
@@ -134,6 +166,35 @@ function PuzzleBody({
     return <p className="text-center text-slate-300">This puzzle type is not available yet.</p>
   }
   return <PatternBoard content={puzzle.content} disabled={disabled} onSubmit={onSubmit} />
+}
+
+function CompletedDailyCard() {
+  const { isAuthenticated, openAuthModal } = useAuth()
+  const navigate = useNavigate()
+
+  return (
+    <section className="mx-auto mt-8 w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center">
+      <h1 className="text-xl font-semibold text-white">Daily Challenge Completed</h1>
+      <p className="mt-2 text-sm text-slate-300">You already finished today's puzzle.</p>
+      {isAuthenticated ? (
+        <button
+          type="button"
+          onClick={() => void navigate('/archive')}
+          className="mt-5 rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950"
+        >
+          Play Archive Challenge
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={openAuthModal}
+          className="mt-5 rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950"
+        >
+          Sign Up to Access Archive & Save Streaks
+        </button>
+      )}
+    </section>
+  )
 }
 
 function StatusCard({ title, children }: { title: string; children?: ReactNode }) {

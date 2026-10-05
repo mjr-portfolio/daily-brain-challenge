@@ -1,6 +1,11 @@
 import { ApiError } from '@/api/client.ts'
 import { submitPuzzle } from '@/api/puzzles.ts'
-import { clearGuestCompletions, listGuestCompletions } from '@/utils/storage.ts'
+import {
+  clearGuestCompletions,
+  listGuestCompletions,
+  saveGuestCompletions,
+  utcToday,
+} from '@/utils/storage.ts'
 
 export async function migrateGuestDataToAccount(): Promise<string[]> {
   const pending = listGuestCompletions()
@@ -18,6 +23,8 @@ export async function migrateGuestDataToAccount(): Promise<string[]> {
     }
   }
 
+  const todayEntries = pending.filter((entry) => entry.assignedDate === utcToday())
   clearGuestCompletions()
+  if (todayEntries.length > 0) saveGuestCompletions(todayEntries)
   return failures
 }

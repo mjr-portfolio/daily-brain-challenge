@@ -68,6 +68,15 @@ export function clearGuestCompletions(): void {
   notify()
 }
 
+export function hasCompletedDailyLocally(assignedDate: string): boolean {
+  return listGuestCompletions().some((entry) => entry.assignedDate === assignedDate)
+}
+
+export function saveGuestCompletions(entries: GuestCompletion[]): void {
+  writeCompletions(entries)
+  notify()
+}
+
 export function recordGuestCompletion(
   entry: Omit<GuestCompletion, 'countedForStreak'>,
 ): GuestCompletion {

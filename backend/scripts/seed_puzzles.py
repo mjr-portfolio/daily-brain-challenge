@@ -34,6 +34,7 @@ SAMPLE_PUZZLES: list[dict] = [
             "choices": [9, 10, 12],
         },
         "solution": 9,
+        "explanation": "Each row increases by 1, so the blank is 9.",
     },
     {
         "offset_days": -1,
@@ -47,6 +48,7 @@ SAMPLE_PUZZLES: list[dict] = [
             "choices": ["I", "J", "K"],
         },
         "solution": "I",
+        "explanation": "Letters run A through I, so the blank is I.",
     },
     {
         "offset_days": -2,
@@ -60,6 +62,7 @@ SAMPLE_PUZZLES: list[dict] = [
             "choices": [16, 14, 10],
         },
         "solution": 16,
+        "explanation": "Each row doubles, so the blank is 16.",
     },
 ]
 
@@ -67,7 +70,7 @@ SAMPLE_PUZZLES: list[dict] = [
 async def seed() -> None:
     today = date.today()
     created = 0
-    skipped = 0
+    updated = 0
 
     async with AsyncSessionLocal() as session:
         for sample in SAMPLE_PUZZLES:
@@ -75,8 +78,12 @@ async def seed() -> None:
             existing = await session.scalar(
                 select(Puzzle).where(Puzzle.assigned_date == assigned)
             )
+            solution_hash = hash_solution(sample["solution"])
             if existing is not None:
-                skipped += 1
+                existing.solution = sample["solution"]
+                existing.explanation = sample["explanation"]
+                existing.solution_hash = solution_hash
+                updated += 1
                 continue
 
             session.add(
@@ -84,14 +91,16 @@ async def seed() -> None:
                     puzzle_type=PuzzleType.PATTERN,
                     assigned_date=assigned,
                     content=sample["content"],
-                    solution_hash=hash_solution(sample["solution"]),
+                    solution_hash=solution_hash,
+                    solution=sample["solution"],
+                    explanation=sample["explanation"],
                 )
             )
             created += 1
 
         await session.commit()
 
-    print(f"Seed complete: created={created}, skipped={skipped}")
+    print(f"Seed complete: created={created}, updated={updated}")
 
 
 if __name__ == "__main__":

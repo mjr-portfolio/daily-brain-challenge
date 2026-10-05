@@ -85,6 +85,7 @@ async def create_puzzle(
     *,
     assigned: date | None,
     solution: object = 9,
+    explanation: str = "Each row increases by 1, so the blank is 9.",
     content: dict | None = None,
 ) -> Puzzle:
     puzzle = Puzzle(
@@ -97,6 +98,8 @@ async def create_puzzle(
             "choices": [9, 10, 12],
         },
         solution_hash=hash_solution(solution),
+        solution=solution,
+        explanation=explanation,
     )
     session.add(puzzle)
     await session.commit()
