@@ -4,16 +4,23 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth.ts'
 import { useGuestStreak } from '@/hooks/useGuestStreak.ts'
 import { formatTime } from '@/utils/time.ts'
-import type { SubmitResult } from '@/types/submit.ts'
+import { formatAnswer, type AnswerType, type SubmitResult } from '@/types/submit.ts'
 
 type SubmissionModalProps = {
   open: boolean
   mode: 'daily' | 'archive'
   result: SubmitResult | null
+  selectedAnswer: AnswerType | null
   onClose: () => void
 }
 
-export function SubmissionModal({ open, mode, result, onClose }: SubmissionModalProps) {
+export function SubmissionModal({
+  open,
+  mode,
+  result,
+  selectedAnswer,
+  onClose,
+}: SubmissionModalProps) {
   const { isAuthenticated, openAuthModal } = useAuth()
   const openedAsGuest = useRef(!isAuthenticated)
   const closedAfterLogin = useRef(false)
@@ -49,6 +56,12 @@ export function SubmissionModal({ open, mode, result, onClose }: SubmissionModal
         <h2 className="text-xl font-semibold text-white">
           {result.is_correct ? 'Correct' : 'Not quite'}
         </h2>
+        {selectedAnswer != null ? (
+          <p className="mt-2 text-slate-300">Your answer: {formatAnswer(selectedAnswer)}</p>
+        ) : null}
+        <p className="mt-1 text-slate-300">
+          Correct answer: {formatAnswer(result.correct_answer)}
+        </p>
         <p className="mt-2 text-slate-300">Time: {formatTime(result.time_taken_seconds)}</p>
         {isAuthenticated ? (
           <div className="mt-3 space-y-2 text-slate-200">
@@ -80,6 +93,7 @@ export function SubmissionModal({ open, mode, result, onClose }: SubmissionModal
             </button>
           </div>
         )}
+        <p className="mt-4 text-sm leading-relaxed text-slate-300">{result.explanation}</p>
         <button
           type="button"
           onClick={onClose}

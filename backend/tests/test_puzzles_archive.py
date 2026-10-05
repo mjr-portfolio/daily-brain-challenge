@@ -52,6 +52,8 @@ async def test_archive_returns_oldest_uncompleted(client, session, today_utc) ->
     body = response.json()
     assert body["id"] == str(older.id)
     assert "solution_hash" not in body
+    assert "solution" not in body
+    assert "explanation" not in body
 
     # complete oldest; next should be the newer past puzzle
     session.add(
