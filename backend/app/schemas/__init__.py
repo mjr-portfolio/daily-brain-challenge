@@ -1,3 +1,4 @@
+from app.schemas.auth import TokenRequest, TokenResponse
 from app.schemas.puzzle import (
     AnagramContent,
     AnagramPuzzleRead,
@@ -23,6 +24,8 @@ __all__ = [
     "PuzzleCreate",
     "PuzzleRead",
     "SubmitResult",
+    "TokenRequest",
+    "TokenResponse",
     "UserCreate",
     "UserRead",
 ]

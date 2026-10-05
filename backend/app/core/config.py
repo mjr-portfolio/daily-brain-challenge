@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "project-play"
     APP_ENV: str = "development"
     DATABASE_URL: str = "postgresql+asyncpg://puzzle:puzzle@localhost:5432/puzzle"
+    JWT_SECRET: str = "dev-only-change-me-use-32+chars!!"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
 
     @property
     def is_development(self) -> bool:

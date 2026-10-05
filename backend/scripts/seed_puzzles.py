@@ -6,8 +6,6 @@ Run from backend/: python -m scripts.seed_puzzles
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -21,12 +19,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.puzzle import Puzzle, PuzzleType  # noqa: E402
-
-
-def hash_solution(solution: object) -> str:
-    payload = json.dumps(solution, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
+from app.services.hashing import hash_solution  # noqa: E402
 
 SAMPLE_PUZZLES: list[dict] = [
     {
