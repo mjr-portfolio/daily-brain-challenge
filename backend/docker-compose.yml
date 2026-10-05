@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: project-play-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: puzzle
+      POSTGRES_PASSWORD: puzzle
+      POSTGRES_DB: puzzle
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U puzzle -d puzzle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

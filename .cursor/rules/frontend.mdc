@@ -1,0 +1,21 @@
+---
+description: Frontend conventions for the React app
+globs: frontend/**/*.{ts,tsx,js,jsx,css}
+alwaysApply: false
+---
+
+# React & Frontend Guidelines
+
+## Tech Stack & Architecture
+- Framework: React with TypeScript and Tailwind CSS.
+- State & Async Data: React Query / TanStack Query for caching and revalidating API requests.
+
+## Component Layout & Rendering
+1. Polymorphic Puzzle Renderers:
+   - Main `<PuzzleContainer />` inspects `puzzle.puzzle_type` and renders corresponding UI (`<PatternBoard />`, `<AnagramBoard />`).
+
+2. Daily vs. Archive Modes:
+   - Clear visual indicators distinguishing "Official Daily Challenge" from "Archive Catch-Up".
+
+3. Post-Submission Flow:
+   - Upon receiving `200 OK` from submission endpoint, trigger global percentile modal displaying user completion time vs. global community distribution.

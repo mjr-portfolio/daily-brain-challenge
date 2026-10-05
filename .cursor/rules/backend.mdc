@@ -1,0 +1,30 @@
+---
+description: Backend conventions for the FastAPI app
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# FastAPI & Backend Guidelines
+
+## Tech Stack & Architecture
+- Framework: Python 3.11+ with FastAPI.
+- Database: PostgreSQL using SQLAlchemy (v2 async) or SQLModel.
+- Data Validation: Pydantic schemas for all incoming payloads and outgoing responses.
+
+## Core Rules & Patterns
+1. Solution Verification:
+   - NEVER expose answer fields or solution keys in GET responses (`GET /api/puzzles/daily` or `GET /api/puzzles/archive/next`).
+   - Answer checking MUST take place inside `POST /api/puzzles/{id}/submit`.
+
+2. Polymorphic Schemas:
+   - Base `PuzzleSchema` with `puzzle_type` discriminator.
+   - Specific Pydantic models validating JSONB `content` based on puzzle type (`PatternContent`, `AnagramContent`).
+
+3. DB Performance:
+   - Use `LEFT JOIN` / `WHERE NOT EXISTS` queries for archive anti-joining.
+   - Ensure `user_completions` queries use index-backed filtering on `(puzzle_id, is_daily_official, time_taken_seconds)`.
+
+### Optional Authentication Pattern
+- Use an optional HTTP bearer token dependency for `POST /api/puzzles/{id}/submit`.
+- If `current_user` is `None`: skip DB logging, return `{ is_correct: bool, time_seconds: int, percentile: None }`.
+- If `current_user` is present: record in `user_completions`, compute window function percentile, return `{ is_correct: bool, time_seconds: int, percentile: float }`.
