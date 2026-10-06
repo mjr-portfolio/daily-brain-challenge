@@ -2,10 +2,17 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
+from app.models.puzzle import PuzzleType
 from app.services.hashing import hash_solution
 from app.services.percentile import compute_official_percentile
-from app.services.verification import compute_score, is_daily_official, verify_answer
+from app.services.verification import (
+    _require_reveal,
+    compute_score,
+    is_daily_official,
+    verify_answer,
+)
 from tests.conftest import cleanup_puzzle, cleanup_user, create_puzzle, create_user
 
 
@@ -18,6 +25,33 @@ def test_verify_answer_correct_and_incorrect() -> None:
     puzzle = SimpleNamespace(solution_hash=hash_solution(9))
     assert verify_answer(puzzle, 9) is True
     assert verify_answer(puzzle, 10) is False
+
+
+def test_verify_anagram_ignores_case_and_whitespace() -> None:
+    puzzle = SimpleNamespace(
+        puzzle_type=PuzzleType.ANAGRAM,
+        solution="apple",
+        solution_hash=hash_solution("not-the-answer"),
+    )
+    assert verify_answer(puzzle, "  APPLE ") is True
+    assert verify_answer(puzzle, "Apple") is True
+
+
+def test_verify_anagram_rejects_wrong_or_non_string() -> None:
+    puzzle = SimpleNamespace(
+        puzzle_type=PuzzleType.ANAGRAM,
+        solution="apple",
+        solution_hash=hash_solution("apple"),
+    )
+    assert verify_answer(puzzle, "apply") is False
+    assert verify_answer(puzzle, 1) is False
+
+
+def test_anagram_non_string_solution_is_unavailable() -> None:
+    puzzle = SimpleNamespace(puzzle_type=PuzzleType.ANAGRAM, solution=9, explanation="n/a")
+    with pytest.raises(HTTPException) as exc:
+        _require_reveal(puzzle)
+    assert exc.value.status_code == 500
 
 
 def test_compute_score() -> None:

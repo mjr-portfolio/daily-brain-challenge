@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.puzzle import Puzzle
+from app.models.puzzle import Puzzle, PuzzleType
 from app.models.user import User
 from app.models.user_completion import UserCompletion
 from app.schemas.user_completion import AnswerType, SubmitResult
@@ -13,8 +13,23 @@ from app.services.hashing import hash_solution
 from app.services.percentile import compute_official_percentile
 
 
+def _is_anagram(puzzle: object) -> bool:
+    return getattr(puzzle, "puzzle_type", None) == PuzzleType.ANAGRAM
+
+
 def verify_answer(puzzle: Puzzle, answer: object) -> bool:
+    if _is_anagram(puzzle):
+        return _verify_anagram(puzzle, answer)
     return hash_solution(answer) == puzzle.solution_hash
+
+
+def _verify_anagram(puzzle: Puzzle, answer: object) -> bool:
+    if not isinstance(answer, str):
+        return False
+    solution = puzzle.solution
+    if not isinstance(solution, str):
+        return False
+    return answer.strip().casefold() == solution.strip().casefold()
 
 
 def compute_score(is_correct: bool) -> int:
@@ -28,7 +43,11 @@ def is_daily_official(puzzle: Puzzle, today_utc: date) -> bool:
 def _require_reveal(puzzle: Puzzle) -> tuple[AnswerType, str]:
     answer = puzzle.solution
     explanation = puzzle.explanation
-    if explanation is None or not _is_answer(answer):
+    if (
+        explanation is None
+        or not _is_answer(answer)
+        or (_is_anagram(puzzle) and not isinstance(answer, str))
+    ):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Puzzle solution is unavailable",
