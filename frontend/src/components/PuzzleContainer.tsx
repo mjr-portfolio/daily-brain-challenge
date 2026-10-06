@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '@/api/client.ts'
+import { AnagramBoard } from '@/components/puzzles/AnagramBoard.tsx'
 import { PatternBoard } from '@/components/PatternBoard.tsx'
 import { SubmissionModal } from '@/components/SubmissionModal.tsx'
 import { Timer } from '@/components/Timer.tsx'
@@ -9,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth.ts'
 import { useDailyPuzzle } from '@/hooks/useDailyPuzzle.ts'
 import { useSubmitPuzzle } from '@/hooks/useSubmitPuzzle.ts'
 import { useTimer } from '@/hooks/useTimer.ts'
-import { isPatternPuzzle, type Puzzle } from '@/types/puzzle.ts'
+import { isAnagramPuzzle, isPatternPuzzle, type Puzzle } from '@/types/puzzle.ts'
 import type { AnswerType, SubmitResult } from '@/types/submit.ts'
 import {
   bumpStreakIfDaily,
@@ -162,10 +163,13 @@ function PuzzleBody({
   disabled: boolean
   onSubmit: (answer: string | number) => void
 }) {
-  if (!isPatternPuzzle(puzzle)) {
-    return <p className="text-center text-slate-300">This puzzle type is not available yet.</p>
+  if (isPatternPuzzle(puzzle)) {
+    return <PatternBoard content={puzzle.content} disabled={disabled} onSubmit={onSubmit} />
   }
-  return <PatternBoard content={puzzle.content} disabled={disabled} onSubmit={onSubmit} />
+  if (isAnagramPuzzle(puzzle)) {
+    return <AnagramBoard content={puzzle.content} disabled={disabled} onSubmit={onSubmit} />
+  }
+  return <p className="text-center text-slate-300">This puzzle type is not available yet.</p>
 }
 
 function CompletedDailyCard() {

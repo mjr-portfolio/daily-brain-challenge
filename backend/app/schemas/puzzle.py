@@ -14,9 +14,9 @@ class PatternContent(BaseModel):
 
 
 class AnagramContent(BaseModel):
-    letters: str
-    clue: str
-    word_length: int
+    scrambled_word: str
+    hint: str | None = None
+    prompt: str | None = "Unscramble the letters to reveal the target word"
 
 
 class NewsQuizContent(BaseModel):
