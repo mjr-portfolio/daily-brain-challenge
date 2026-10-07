@@ -23,6 +23,7 @@ class NewsQuizContent(BaseModel):
     question: str
     options: list[str]
     source_headline: str | None = None
+    hint: str | None = None
 
 
 class PuzzleCreate(BaseModel):

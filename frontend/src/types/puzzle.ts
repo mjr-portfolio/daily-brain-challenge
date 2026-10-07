@@ -28,6 +28,21 @@ export type AnagramPuzzle = {
   content: AnagramContent
 }
 
+export type NewsQuizContent = {
+  question: string
+  options: string[]
+  source_headline?: string | null
+  hint?: string | null
+}
+
+export type NewsQuizPuzzle = {
+  id: string
+  puzzle_type: 'news_quiz'
+  assigned_date: string | null
+  created_at: string
+  content: NewsQuizContent
+}
+
 export type UnsupportedPuzzle = {
   id: string
   puzzle_type: string
@@ -36,7 +51,7 @@ export type UnsupportedPuzzle = {
   content: Record<string, unknown>
 }
 
-export type Puzzle = PatternPuzzle | AnagramPuzzle | UnsupportedPuzzle
+export type Puzzle = PatternPuzzle | AnagramPuzzle | NewsQuizPuzzle | UnsupportedPuzzle
 
 export function isPatternPuzzle(puzzle: Puzzle): puzzle is PatternPuzzle {
   return puzzle.puzzle_type === 'pattern'
@@ -44,4 +59,8 @@ export function isPatternPuzzle(puzzle: Puzzle): puzzle is PatternPuzzle {
 
 export function isAnagramPuzzle(puzzle: Puzzle): puzzle is AnagramPuzzle {
   return puzzle.puzzle_type === 'anagram'
+}
+
+export function isNewsQuizPuzzle(puzzle: Puzzle): puzzle is NewsQuizPuzzle {
+  return puzzle.puzzle_type === 'news_quiz'
 }

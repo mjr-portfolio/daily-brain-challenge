@@ -13,17 +13,20 @@ from app.services.hashing import hash_solution
 from app.services.percentile import compute_official_percentile
 
 
-def _is_anagram(puzzle: object) -> bool:
-    return getattr(puzzle, "puzzle_type", None) == PuzzleType.ANAGRAM
+_TEXT_PUZZLE_TYPES = {PuzzleType.ANAGRAM, PuzzleType.NEWS_QUIZ}
+
+
+def _is_text_puzzle(puzzle: object) -> bool:
+    return getattr(puzzle, "puzzle_type", None) in _TEXT_PUZZLE_TYPES
 
 
 def verify_answer(puzzle: Puzzle, answer: object) -> bool:
-    if _is_anagram(puzzle):
-        return _verify_anagram(puzzle, answer)
+    if _is_text_puzzle(puzzle):
+        return _verify_text_answer(puzzle, answer)
     return hash_solution(answer) == puzzle.solution_hash
 
 
-def _verify_anagram(puzzle: Puzzle, answer: object) -> bool:
+def _verify_text_answer(puzzle: Puzzle, answer: object) -> bool:
     if not isinstance(answer, str):
         return False
     solution = puzzle.solution
@@ -46,7 +49,7 @@ def _require_reveal(puzzle: Puzzle) -> tuple[AnswerType, str]:
     if (
         explanation is None
         or not _is_answer(answer)
-        or (_is_anagram(puzzle) and not isinstance(answer, str))
+        or (_is_text_puzzle(puzzle) and not isinstance(answer, str))
     ):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
