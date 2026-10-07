@@ -54,6 +54,33 @@ def test_anagram_non_string_solution_is_unavailable() -> None:
     assert exc.value.status_code == 500
 
 
+def test_verify_news_quiz_ignores_case_and_whitespace() -> None:
+    puzzle = SimpleNamespace(
+        puzzle_type=PuzzleType.NEWS_QUIZ,
+        solution="Google",
+        solution_hash=hash_solution("not-the-answer"),
+    )
+    assert verify_answer(puzzle, "  GOOGLE ") is True
+    assert verify_answer(puzzle, "google") is True
+
+
+def test_verify_news_quiz_rejects_wrong_or_non_string() -> None:
+    puzzle = SimpleNamespace(
+        puzzle_type=PuzzleType.NEWS_QUIZ,
+        solution="Google",
+        solution_hash=hash_solution("Google"),
+    )
+    assert verify_answer(puzzle, "Meta") is False
+    assert verify_answer(puzzle, 1) is False
+
+
+def test_news_quiz_non_string_solution_is_unavailable() -> None:
+    puzzle = SimpleNamespace(puzzle_type=PuzzleType.NEWS_QUIZ, solution=9, explanation="n/a")
+    with pytest.raises(HTTPException) as exc:
+        _require_reveal(puzzle)
+    assert exc.value.status_code == 500
+
+
 def test_compute_score() -> None:
     assert compute_score(True) == 100
     assert compute_score(False) == 0
