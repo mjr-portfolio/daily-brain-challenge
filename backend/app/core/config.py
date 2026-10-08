@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "dev-only-change-me-use-32+chars!!"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-3.8-flash"
 
     @property
     def is_development(self) -> bool:
