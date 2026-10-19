@@ -1,3 +1,5 @@
+import type { AnswerType } from '@/types/submit.ts'
+
 const TOKEN_KEY = 'auth_token'
 const EMAIL_KEY = 'auth_email'
 const STREAK_KEY = 'guest_streak'
@@ -8,7 +10,7 @@ export type GuestCompletion = {
   puzzleId: string
   assignedDate: string | null
   timeTakenSeconds: number
-  answer: string | number
+  answer: AnswerType
   isCorrect: boolean
   countedForStreak: boolean
 }

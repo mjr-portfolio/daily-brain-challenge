@@ -1,9 +1,26 @@
-export type CellValue = string | number | null
+export type ShapeName =
+  | 'circle'
+  | 'triangle'
+  | 'square'
+  | 'diamond'
+  | 'star'
+  | 'pentagon'
+  | 'hexagon'
+export type ShapeColor = 'red' | 'blue' | 'green' | 'purple' | 'yellow' | 'orange'
+
+export type ShapeItem = {
+  shape: ShapeName
+  color: ShapeColor
+  rotation?: number
+  count?: number
+}
+
+export type CellValue = string | number | ShapeItem | null
 
 export type PatternContent = {
   grid: CellValue[][]
   prompt: string
-  choices: Array<string | number> | null
+  choices: Array<string | number | ShapeItem> | null
 }
 
 export type PatternPuzzle = {

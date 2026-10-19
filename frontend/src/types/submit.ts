@@ -1,4 +1,6 @@
-export type AnswerType = string | number | Array<string | number>
+import type { ShapeItem } from '@/types/puzzle.ts'
+
+export type AnswerType = string | number | Array<string | number> | ShapeItem
 
 export type SubmitPayload = {
   answer: AnswerType
@@ -17,5 +19,12 @@ export type SubmitResult = {
 
 export function formatAnswer(answer: AnswerType): string {
   if (Array.isArray(answer)) return answer.map((item) => String(item)).join(', ')
+  if (typeof answer === 'object') {
+    const count = answer.count ?? 1
+    const rotation = answer.rotation ?? 0
+    const noun = count === 1 ? answer.shape : `${answer.shape}s`
+    const turn = rotation ? `, ${rotation}°` : ''
+    return `${count} ${answer.color} ${noun}${turn}`
+  }
   return String(answer)
 }
