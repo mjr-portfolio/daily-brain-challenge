@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.8-flash"
+    # Use gemini-3.8-flash for daily standard and gemini-3.5-flash-lite for filling the queue if 3+ are needed
 
     @property
     def is_development(self) -> bool:

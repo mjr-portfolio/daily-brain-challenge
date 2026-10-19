@@ -3,7 +3,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-AnswerType = int | str | list[int | str]
+from app.schemas.puzzle import ShapeItem
+
+AnswerType = int | str | list[int | str] | ShapeItem
 
 
 class CompletionCreate(BaseModel):

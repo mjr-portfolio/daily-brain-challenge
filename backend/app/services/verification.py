@@ -2,12 +2,14 @@ from datetime import date
 from typing import cast
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.puzzle import Puzzle, PuzzleType
 from app.models.user import User
 from app.models.user_completion import UserCompletion
+from app.schemas.puzzle import ShapeItem
 from app.schemas.user_completion import AnswerType, SubmitResult
 from app.services.hashing import hash_solution
 from app.services.percentile import compute_official_percentile
@@ -23,7 +25,18 @@ def _is_text_puzzle(puzzle: object) -> bool:
 def verify_answer(puzzle: Puzzle, answer: object) -> bool:
     if _is_text_puzzle(puzzle):
         return _verify_text_answer(puzzle, answer)
-    return hash_solution(answer) == puzzle.solution_hash
+    return _hash_pattern_answer(answer) == puzzle.solution_hash
+
+
+def _hash_pattern_answer(answer: object) -> str:
+    if isinstance(answer, ShapeItem):
+        return hash_solution(answer.model_dump())
+    if isinstance(answer, dict):
+        try:
+            return hash_solution(ShapeItem.model_validate(answer).model_dump())
+        except ValidationError:
+            return hash_solution(answer)
+    return hash_solution(answer)
 
 
 def _verify_text_answer(puzzle: Puzzle, answer: object) -> bool:
@@ -58,10 +71,22 @@ def _require_reveal(puzzle: Puzzle) -> tuple[AnswerType, str]:
     return cast(AnswerType, answer), explanation
 
 
+def _is_shape_answer(value: object) -> bool:
+    if isinstance(value, ShapeItem):
+        return True
+    if not isinstance(value, dict):
+        return False
+    try:
+        ShapeItem.model_validate(value)
+    except ValidationError:
+        return False
+    return True
+
+
 def _is_answer(value: object) -> bool:
     if isinstance(value, bool):
         return False
-    if isinstance(value, int | str):
+    if isinstance(value, int | str) or _is_shape_answer(value):
         return True
     if isinstance(value, list):
         return all(_is_answer(item) and not isinstance(item, list) for item in value)

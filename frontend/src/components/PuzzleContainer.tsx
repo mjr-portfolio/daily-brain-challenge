@@ -78,7 +78,7 @@ function PuzzleSession({ mode, puzzle }: { mode: PuzzleMode; puzzle: Puzzle }) {
   const [showCompleted, setShowCompleted] = useState(false)
   const timer = useTimer(result == null && !showCompleted)
 
-  async function handleSubmit(answer: string | number) {
+  async function handleSubmit(answer: AnswerType) {
     const seconds = timer.stop()
     setSelectedAnswer(answer)
     setSubmitError(null)
@@ -167,7 +167,7 @@ function PuzzleBody({
 }: {
   puzzle: Puzzle
   disabled: boolean
-  onSubmit: (answer: string | number) => void
+  onSubmit: (answer: AnswerType) => void
 }) {
   if (isPatternPuzzle(puzzle)) {
     return <PatternBoard content={puzzle.content} disabled={disabled} onSubmit={onSubmit} />

@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import random
+import re
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from google import genai
 from google.genai import types
@@ -11,15 +16,28 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models.puzzle import PuzzleType
-from app.schemas.puzzle import AnagramContent, NewsQuizContent, PatternContent
+from app.schemas.puzzle import AnagramContent, NewsQuizContent, PatternContent, ShapeItem
 from app.services.hashing import hash_solution
+
+PatternKind = Literal["numerical", "unicode", "shape"]
 
 
 class GeneratedPattern(BaseModel):
-    grid: list[list[int | str | None]]
+    grid: list[list[int | str | ShapeItem | None]]
     prompt: str
-    choices: list[int | str]
-    solution: int | str
+    choices: list[int | str | ShapeItem]
+    solution: int | str | ShapeItem
+    explanation: str
+
+
+ShapeRow = Annotated[list[ShapeItem | None], Field(min_length=4, max_length=4)]
+
+
+class GeneratedShape(BaseModel):
+    grid: list[ShapeRow] = Field(min_length=4, max_length=4)
+    prompt: str
+    choices: list[ShapeItem] = Field(min_length=4, max_length=4)
+    solution: ShapeItem
     explanation: str
 
 
@@ -33,7 +51,7 @@ class GeneratedAnagram(BaseModel):
 
 class GeneratedNewsQuiz(BaseModel):
     question: str
-    options: list[str] = Field(min_length=2)
+    options: list[str] = Field(min_length=4, max_length=4)
     source_headline: str | None = None
     hint: str | None = None
     solution: str
@@ -60,7 +78,12 @@ def _require_api_key() -> str:
     return key
 
 
-def _generate_structured[T: BaseModel](prompt: str, schema: type[T]) -> T:
+def _generate_structured[T: BaseModel](
+    prompt: str,
+    schema: type[T],
+    *,
+    system_instruction: str,
+) -> T:
     """Create a fresh Client per call (safe for asyncio.to_thread workers)."""
     settings = get_settings()
     # Never reuse a module-level/shared Client across threads — each worker owns
@@ -70,6 +93,7 @@ def _generate_structured[T: BaseModel](prompt: str, schema: type[T]) -> T:
             model=settings.GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
                 response_mime_type="application/json",
                 response_schema=schema,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
@@ -88,40 +112,513 @@ def _generate_structured[T: BaseModel](prompt: str, schema: type[T]) -> T:
             ) from exc
 
 
-def generate_pattern_puzzle() -> GeneratedPuzzle:
-    raw = _generate_structured(
-        (
-            "Create one original pattern-recognition puzzle suitable for a daily brain-training app. "
-            "Use a 3x3 grid of numbers or short letters with exactly one null blank cell. "
-            "Provide 3 multiple-choice options including the correct answer. "
-            "solution must equal the blank cell value and appear in choices. "
-            "Keep the prompt concise and the explanation clear."
-        ),
-        GeneratedPattern,
+def _generate_checked[T: BaseModel](
+    prompt: str,
+    schema: type[T],
+    *,
+    system_instruction: str,
+    check: Callable[[T], None],
+) -> T:
+    """Call Gemini, then retry once if the payload fails a structural check."""
+    error: GenerationError | None = None
+    for _ in range(2):
+        try:
+            raw = _generate_structured(
+                prompt,
+                schema,
+                system_instruction=system_instruction,
+            )
+            check(raw)
+            return raw
+        except GenerationError as exc:
+            error = exc
+    assert error is not None
+    raise error
+
+
+ANAGRAM_SYSTEM = """You are a world-class word puzzle master for top daily newspapers like The New York Times.
+
+Before you fill the JSON, draft a candidate word and a scrambled version internally, then rate difficulty from 1 to 10. Emit the puzzle only when that score is strictly between 5 and 7 (accessible but challenging). Do not include the draft, the score, or any reasoning in the JSON.
+
+Constraints:
+- solution is one English word of 6 to 8 letters, familiar to a general audience, and non-obvious once scrambled.
+- scrambled_word uses exactly the same letters as solution and is not the word itself.
+- hint is a subtle contextual clue that creates a rewarding aha moment, not a definition that gives the word away.
+- hint must not contain the solution, a root or inflected form of it, or a direct synonym. "whispering" and "hushed" both give away WHISPER.
+- prompt stays a short instruction to unscramble the letters.
+- explanation states the word and why the hint fits, in one or two sentences.
+"""
+
+PATTERN_SYSTEM = """You are a senior logic and intelligence puzzle writer for Mensa and GCHQ.
+
+Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Target difficulty 6/10. Do not include that reasoning in the JSON.
+
+Shared rules:
+- grid is 3 rows of 3 cells with exactly one null blank.
+- choices has exactly 3 distinct options, and solution equals the blank cell and is one of the choices.
+- prompt is concise. explanation names the rule clearly.
+"""
+
+SHAPE_SYSTEM = """You are a senior logic and intelligence puzzle writer for Mensa and GCHQ.
+
+Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Target difficulty 6/10. Do not include that reasoning in the JSON.
+
+Shared rules for shape puzzles:
+- grid is 4 rows of 4 cells with exactly one null blank.
+- choices has exactly 4 distinct options, and solution equals the blank cell and is one of the choices.
+- prompt is concise. explanation names the rule clearly.
+"""
+
+NEWS_SYSTEM = """You are a lead editor for a premier weekly global current events quiz.
+
+Before you fill the JSON, draft the question and three distractors internally and aim for difficulty 6/10: challenging yet accessible. Do not include that draft in the JSON.
+
+Constraints:
+- One multiple-choice question on significant science, technology, global culture, or major news.
+- Avoid trivial micro-details, dates of minor incidents, and obscure proper nouns.
+- options has exactly 4 distinct choices. solution is one of them.
+- The four options are distinct concepts, not synonyms, subtypes, or rephrasings of one another.
+- The other three options are plausible educated guesses, not jokes or obvious throwaways.
+- source_headline is a short plausible headline about the event. hint may be null or a light nudge.
+- question, source_headline, and hint must not contain the solution phrase or any of its root words, including hyphenated or inflected forms. "nitrogen-fixing" is an echo of "nitrogen fixation" and is not allowed.
+- question and hint must not share a stem with any option. A player must not be able to eliminate a choice by matching a word in the question or hint to a word in an option.
+- A reader who sees only the headline must still need the question to choose an answer.
+- explanation says why the answer is right in one or two sentences.
+"""
+
+_PATTERN_PROMPTS: dict[PatternKind, str] = {
+    "numerical": (
+        "Create one original multi-step numerical progression on a 3x3 grid. "
+        "Use JSON integers only. The rule must need at least two steps, such as "
+        "alternating operations (+2 then ×3) or a Fibonacci-style offset. "
+        "Do not use a single constant add or multiply across the whole grid."
+    ),
+    "unicode": (
+        "Create one original Unicode symbol grid transformation. "
+        "Every filled cell, every choice, and the solution is a short Unicode symbol "
+        "string such as ▲, ■, ◯, or ➔. The rule is a rotation, reflection, or matrix "
+        "balance that is unambiguous. Do not use numbers or shape objects."
+    ),
+}
+
+
+def _shape_task_prompt() -> str:
+    return (
+        "Create one original 4x4 shape puzzle at difficulty 6/10. "
+        "Exactly one cell is null. Count is 1 in every cell and every choice. "
+        "Use only triangle (3 sides), square (4), pentagon (5), and hexagon (6). "
+        "Colors are red, blue, green, purple, yellow, and orange. Use at least two colors. "
+        "Along each row, side count changes by the same step of +1, +2, -1, or -2, "
+        "and rotation changes by the same 90, 180, or 270 degrees, wrapping at 360. "
+        "Alternate the direction from row to row so the rows are not copies of each other. "
+        "The blank's shape must be a triangle, pentagon, or hexagon so its turn is visible. "
+        "Color is either a row or column tint, or a further step in the rule. "
+        "Tint: every cell in a row shares one color, or every cell in a column shares one color, "
+        "and different rows or columns use different colors, such as row 1 purple and row 2 orange. "
+        "When color is only a tint, every choice uses the blank row's color, or the blank column's "
+        "color if columns are tinted, so color cannot eliminate a button. "
+        "When color changes inside the rows and columns as part of the rule, at least two choices "
+        "must share both the solution color and the solution shape, so the solver still has to "
+        "use rotation or side-count arithmetic. "
+        "Provide exactly 4 distinct choices, and include the solution. "
+        "One distractor is a strict near miss: the solution shape and color turned by one step "
+        "of that row's rotation, or the same color whose side count is that row's side step reversed. "
+        "Another distractor keeps the solution shape at a different rotation. "
+        "Shape alone and color alone must not identify the answer. "
+        "Forbidden: a row or column that merely contains one of each color, or one of each shape, "
+        "and any rule where the missing color is the answer. "
+        "Do not use numbers or plain strings."
     )
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _matches_kind(value: object, kind: PatternKind) -> bool:
+    if kind == "numerical":
+        return _is_int(value)
+    if kind == "unicode":
+        return isinstance(value, str) and bool(value.strip())
+    return isinstance(value, ShapeItem)
+
+
+def _choice_identity(value: object) -> str:
+    if isinstance(value, ShapeItem):
+        return json.dumps(value.model_dump(), sort_keys=True, separators=(",", ":"))
+    return json.dumps(value)
+
+
+def stored_pattern_solution(solution: int | str | ShapeItem) -> object:
+    if isinstance(solution, ShapeItem):
+        return solution.model_dump()
+    return solution
+
+
+def _validate_pattern(raw: GeneratedPattern, kind: PatternKind) -> None:
+    size = 4 if kind == "shape" else 3
+    if len(raw.grid) != size or any(len(row) != size for row in raw.grid):
+        raise GenerationError(f"Pattern grid must be {size}x{size}")
+    blanks = sum(cell is None for row in raw.grid for cell in row)
+    if blanks != 1:
+        raise GenerationError("Pattern grid must contain exactly one blank")
+    choice_count = 4 if kind == "shape" else 3
+    if len(raw.choices) != choice_count:
+        raise GenerationError(f"Pattern must provide exactly {choice_count} choices")
+    if len({_choice_identity(choice) for choice in raw.choices}) != choice_count:
+        raise GenerationError("Pattern choices must be distinct")
+    filled = [cell for row in raw.grid for cell in row if cell is not None]
+    for value in (*filled, *raw.choices, raw.solution):
+        if not _matches_kind(value, kind):
+            raise GenerationError(f"Pattern value does not match {kind}")
+    if raw.solution not in raw.choices:
+        raise GenerationError("Pattern solution must appear in choices")
+    if kind == "shape":
+        _validate_shape_rules(raw)
+
+
+_STEM_SUFFIXES = (
+    "ization",
+    "isation",
+    "ation",
+    "tion",
+    "sion",
+    "ing",
+    "ers",
+    "ies",
+    "ied",
+    "ed",
+    "es",
+    "s",
+)
+
+
+_SIDE_COUNTS = {"triangle": 3, "square": 4, "pentagon": 5, "hexagon": 6}
+_VISIBLE_TURN = {"triangle", "pentagon", "hexagon"}
+
+
+def _adjacent_step(values: list[int | None], *, modulo: int | None = None) -> int | None:
+    deltas: list[int] = []
+    for left, right in zip(values, values[1:], strict=False):
+        if left is None or right is None:
+            continue
+        delta = right - left
+        if modulo is not None:
+            delta %= modulo
+        deltas.append(delta)
+    if not deltas or len(set(deltas)) != 1 or deltas[0] == 0:
+        return None
+    return deltas[0]
+
+
+def _predictions(
+    values: list[int | None],
+    index: int,
+    step: int,
+    *,
+    modulo: int | None = None,
+) -> list[int]:
+    predicted: list[int] = []
+    for anchor, value in enumerate(values):
+        if value is None or anchor == index:
+            continue
+        result = value + step * (index - anchor)
+        if modulo is not None:
+            result %= modulo
+        predicted.append(result)
+    return predicted
+
+
+def _line_color(cells: list[object] | tuple[object, ...]) -> str | None:
+    found = {cell.color for cell in cells if isinstance(cell, ShapeItem)}
+    if len(found) == 1:
+        return next(iter(found))
+    return None
+
+
+def _reject_missing_color(
+    lines: list[list[object]] | list[tuple[object, ...]],
+    blank_index: int,
+    solution_color: str,
+) -> None:
+    def colors(line: list[object] | tuple[object, ...]) -> tuple[str, ...]:
+        return tuple(sorted(cell.color for cell in line if isinstance(cell, ShapeItem)))
+
+    complete = [
+        colors(line) for index, line in enumerate(lines) if index != blank_index
+    ]
+    if not complete or len(set(complete)) != 1 or len(complete[0]) != 4:
+        return
+    blank_colors = set(colors(lines[blank_index]))
+    missing = set(complete[0]) - blank_colors
+    if missing == {solution_color} and solution_color not in blank_colors:
+        raise GenerationError("Missing color must not be the answer")
+
+
+def _validate_shape_rules(raw: GeneratedPattern) -> None:
+    if not isinstance(raw.solution, ShapeItem):
+        raise GenerationError("Shape solution must be a shape object")
+    solution = raw.solution
+    choice_items = [choice for choice in raw.choices if isinstance(choice, ShapeItem)]
+    if solution.shape not in _VISIBLE_TURN:
+        raise GenerationError("The blank shape must show its rotation")
+    blank = next(
+        (row_index, col_index)
+        for row_index, row in enumerate(raw.grid)
+        for col_index, cell in enumerate(row)
+        if cell is None
+    )
+    shape_rows: list[tuple[str, ...]] = []
+    blank_side_step = 0
+    blank_turn_step = 0
+    for row_index, row in enumerate(raw.grid):
+        sides: list[int | None] = []
+        turns: list[int | None] = []
+        shapes: list[str] = []
+        for cell in row:
+            if not isinstance(cell, ShapeItem):
+                sides.append(None)
+                turns.append(None)
+                continue
+            if cell.shape not in _SIDE_COUNTS:
+                raise GenerationError(
+                    "Shape progression must use triangle, square, pentagon, or hexagon"
+                )
+            if cell.count != 1:
+                raise GenerationError("Shape cells must have a count of 1")
+            sides.append(_SIDE_COUNTS[cell.shape])
+            turns.append(cell.rotation)
+            shapes.append(cell.shape)
+        side_step = _adjacent_step(sides)
+        turn_step = _adjacent_step(turns, modulo=360)
+        if side_step not in (-2, -1, 1, 2):
+            raise GenerationError("Each row must change side count by 1 or 2")
+        if turn_step not in (90, 180, 270):
+            raise GenerationError("Each row must turn by a constant 90, 180, or 270 degrees")
+        if row_index != blank[0]:
+            shape_rows.append(tuple(shapes))
+            continue
+        blank_side_step = side_step
+        blank_turn_step = turn_step
+        side_matches = _predictions(sides, blank[1], side_step)
+        turn_matches = _predictions(turns, blank[1], turn_step, modulo=360)
+        if len(set(side_matches)) != 1 or side_matches[0] != _SIDE_COUNTS[solution.shape]:
+            raise GenerationError("Solution shape does not fit the side-count step")
+        if len(set(turn_matches)) != 1 or turn_matches[0] != solution.rotation:
+            raise GenerationError("Solution rotation does not fit the turn step")
+    if len(set(shape_rows)) < 2:
+        raise GenerationError("Rows must not repeat one shape sequence")
+    colors_used = {
+        cell.color
+        for row in raw.grid
+        for cell in row
+        if isinstance(cell, ShapeItem)
+    }
+    if len(colors_used) < 2:
+        raise GenerationError("Shape puzzles must use at least two colors")
+    row_tint = all(_line_color(row) is not None for row in raw.grid)
+    columns = [tuple(row[index] for row in raw.grid) for index in range(len(raw.grid))]
+    column_tint = all(_line_color(column) is not None for column in columns)
+    if row_tint or column_tint:
+        if row_tint and _line_color(raw.grid[blank[0]]) != solution.color:
+            raise GenerationError("Solution color must match the blank row")
+        blank_column = columns[blank[1]]
+        if column_tint and _line_color(blank_column) != solution.color:
+            raise GenerationError("Solution color must match the blank column")
+        if any(choice.color != solution.color for choice in choice_items):
+            raise GenerationError(
+                "Tinted puzzles must use the target line's color on every choice"
+            )
+    else:
+        shared = sum(
+            choice.shape == solution.shape and choice.color == solution.color
+            for choice in choice_items
+        )
+        if shared < 2:
+            raise GenerationError(
+                "When color is part of the rule, two choices must share the solution shape and color"
+            )
+        _reject_missing_color(raw.grid, blank[0], solution.color)
+        _reject_missing_color(columns, blank[1], solution.color)
+    if any(choice.count != 1 for choice in choice_items):
+        raise GenerationError("Shape choices must have a count of 1")
+    others = [choice for choice in choice_items if choice != solution]
+    if not any(
+        choice.shape == solution.shape and choice.rotation != solution.rotation
+        for choice in others
+    ):
+        raise GenerationError(
+            "A distractor must share the solution shape at a different rotation"
+        )
+    if sum(choice.shape == solution.shape for choice in choice_items) < 2:
+        raise GenerationError("Shape alone must not identify the answer")
+    if sum(choice.color == solution.color for choice in choice_items) < 2:
+        raise GenerationError("Color alone must not identify the answer")
+    off_rotations = {
+        (solution.rotation + blank_turn_step) % 360,
+        (solution.rotation - blank_turn_step) % 360,
+    } - {solution.rotation}
+    inverse_sides = _SIDE_COUNTS[solution.shape] - blank_side_step
+    inverse_shape = next(
+        (name for name, sides in _SIDE_COUNTS.items() if sides == inverse_sides),
+        None,
+    )
+
+    def _near_miss(choice: ShapeItem) -> bool:
+        if choice.color != solution.color:
+            return False
+        if choice.shape == solution.shape and choice.rotation in off_rotations:
+            return True
+        return inverse_shape is not None and choice.shape == inverse_shape
+
+    if not any(_near_miss(choice) for choice in others):
+        raise GenerationError(
+            "A distractor must be a one-step rotation or reversed side-count near miss"
+        )
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.casefold())
+
+
+def _stem(word: str) -> str:
+    for suffix in _STEM_SUFFIXES:
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def _roots(text: str) -> set[str]:
+    roots: set[str] = set()
+    for token in _tokens(text):
+        if len(token) < 4:
+            continue
+        roots.add(token)
+        stem = _stem(token)
+        if len(stem) >= 3:
+            roots.add(stem)
+    return roots
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def _validate_news_quiz(raw: GeneratedNewsQuiz) -> None:
+    if len(raw.options) != 4 or len(set(raw.options)) != 4:
+        raise GenerationError("News quiz must have exactly 4 distinct options")
+    if raw.solution not in raw.options:
+        raise GenerationError("News quiz solution must be one of the options")
+    context = " ".join(
+        part
+        for part in (raw.question, raw.source_headline or "", raw.hint or "")
+        if part
+    )
+    solution = raw.solution.strip()
+    if _compact(solution) and _compact(solution) in _compact(context):
+        raise GenerationError("News quiz context repeats the solution phrase")
+    leaked = sorted(_roots(solution) & _roots(context))
+    if leaked:
+        raise GenerationError(
+            "News quiz question, headline, or hint echoes the solution: "
+            + ", ".join(leaked)
+        )
+    prompt_context = " ".join(
+        part for part in (raw.question, raw.hint or "") if part
+    )
+    for option in raw.options:
+        shared = sorted(_roots(option) & _roots(prompt_context))
+        if shared:
+            raise GenerationError(
+                "News quiz question or hint shares a stem with an option: "
+                + ", ".join(shared)
+            )
+
+
+def _validate_anagram(raw: GeneratedAnagram) -> None:
+    word = raw.solution.strip()
+    scrambled = raw.scrambled_word.strip()
+    if not word.isalpha() or not 6 <= len(word) <= 8:
+        raise GenerationError("Anagram solution must be a single word of 6 to 8 letters")
+    if not scrambled.isalpha():
+        raise GenerationError("scrambled_word must contain only letters")
+    if Counter(scrambled.casefold()) != Counter(word.casefold()):
+        raise GenerationError("scrambled_word must use the same letters as solution")
+    if scrambled.casefold() == word.casefold():
+        raise GenerationError("scrambled_word must not be the solution itself")
+    if raw.hint is None or not raw.hint.strip():
+        raise GenerationError("Anagram hint must be non-empty")
+    echoed = _hint_echoes_solution(word, raw.hint)
+    if echoed:
+        raise GenerationError(
+            f"Anagram hint contains a root of the solution: {echoed}"
+        )
+
+
+def _hint_echoes_solution(word: str, hint: str) -> str | None:
+    shared = sorted(_roots(word) & _roots(hint))
+    if shared:
+        return ", ".join(shared)
+    compact = _compact(hint).replace(" ", "")
+    for token in _tokens(word):
+        if len(token) < 4:
+            continue
+        if token in compact:
+            return token
+        stem = _stem(token)
+        if len(stem) >= 4 and stem in compact:
+            return stem
+    return None
+
+
+def _shape_as_pattern(raw: GeneratedShape) -> GeneratedPattern:
+    return GeneratedPattern(
+        grid=raw.grid,
+        prompt=raw.prompt,
+        choices=raw.choices,
+        solution=raw.solution,
+        explanation=raw.explanation,
+    )
+
+
+def generate_pattern_puzzle() -> GeneratedPuzzle:
+    kind = random.choice(("numerical", "unicode", "shape"))
+    if kind == "shape":
+        shape = _generate_checked(
+            _shape_task_prompt(),
+            GeneratedShape,
+            system_instruction=SHAPE_SYSTEM,
+            check=lambda payload: _validate_pattern(_shape_as_pattern(payload), "shape"),
+        )
+        raw = _shape_as_pattern(shape)
+    else:
+        raw = _generate_checked(
+            _PATTERN_PROMPTS[kind],
+            GeneratedPattern,
+            system_instruction=PATTERN_SYSTEM,
+            check=lambda payload: _validate_pattern(payload, kind),
+        )
     content = PatternContent(
         grid=raw.grid,
         prompt=raw.prompt,
         choices=raw.choices,
     ).model_dump()
+    solution = stored_pattern_solution(raw.solution)
     return GeneratedPuzzle(
         puzzle_type=PuzzleType.PATTERN,
         content=content,
-        solution=raw.solution,
+        solution=solution,
         explanation=raw.explanation,
-        solution_hash=hash_solution(raw.solution),
+        solution_hash=hash_solution(solution),
     )
 
 
 def generate_anagram_puzzle() -> GeneratedPuzzle:
-    raw = _generate_structured(
-        (
-            "Create one original anagram puzzle for a daily brain-training app. "
-            "scrambled_word must be a scrambled form of solution with the same letters. "
-            "Provide a short helpful hint and a clear explanation. "
-            "solution must be a single English word."
-        ),
+    raw = _generate_checked(
+        "Create one original anagram that follows the system constraints.",
         GeneratedAnagram,
+        system_instruction=ANAGRAM_SYSTEM,
+        check=_validate_anagram,
     )
     content = AnagramContent(
         scrambled_word=raw.scrambled_word,
@@ -138,17 +635,12 @@ def generate_anagram_puzzle() -> GeneratedPuzzle:
 
 
 def generate_news_quiz_puzzle() -> GeneratedPuzzle:
-    raw = _generate_structured(
-        (
-            "Create one original multiple-choice news quiz for a daily brain-training app. "
-            "Use a plausible recent-tech or science context headline. "
-            "Provide exactly 4 distinct options. solution must be one of the options. "
-            "Keep the question factual-sounding and include a short explanation."
-        ),
+    raw = _generate_checked(
+        "Create one original news-quiz item that follows the system constraints.",
         GeneratedNewsQuiz,
+        system_instruction=NEWS_SYSTEM,
+        check=_validate_news_quiz,
     )
-    if raw.solution not in raw.options:
-        raise GenerationError("News quiz solution must be one of the options")
     content = NewsQuizContent(
         question=raw.question,
         options=raw.options,

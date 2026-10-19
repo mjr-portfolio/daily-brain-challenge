@@ -2,15 +2,46 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.puzzle import PuzzleType
 
 
+class ShapeItem(BaseModel):
+    shape: Literal["circle", "triangle", "square", "diamond", "star", "pentagon", "hexagon"]
+    color: Literal["red", "blue", "green", "purple", "yellow", "orange"]
+    rotation: int = 0
+    count: int = Field(default=1, ge=1, le=4)
+
+    @field_validator("rotation", mode="before")
+    @classmethod
+    def default_rotation(cls, value: object) -> object:
+        if value is None:
+            return 0
+        return value
+
+    @field_validator("rotation")
+    @classmethod
+    def check_rotation(cls, value: int) -> int:
+        if value not in (0, 90, 180, 270):
+            raise ValueError("rotation must be 0, 90, 180, or 270")
+        return value
+
+    @field_validator("count", mode="before")
+    @classmethod
+    def default_count(cls, value: object) -> object:
+        if value is None:
+            return 1
+        return value
+
+
+PatternElement = str | ShapeItem
+
+
 class PatternContent(BaseModel):
-    grid: list[list[str | int | None]]
+    grid: list[list[str | int | ShapeItem | None]]
     prompt: str
-    choices: list[str | int] | None = None
+    choices: list[str | int | ShapeItem] | None = None
 
 
 class AnagramContent(BaseModel):
