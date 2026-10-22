@@ -8,6 +8,7 @@ export type TokenResponse = {
 export type AccountRead = {
   email: string
   streak: number
+  total_score: number
 }
 
 export function requestToken(email: string): Promise<TokenResponse> {

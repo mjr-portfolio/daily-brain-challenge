@@ -7,6 +7,7 @@ import { NewsQuizBoard } from '@/components/puzzles/NewsQuizBoard.tsx'
 import { PatternBoard } from '@/components/PatternBoard.tsx'
 import { SubmissionModal } from '@/components/SubmissionModal.tsx'
 import { Timer } from '@/components/Timer.tsx'
+import type { AccountRead } from '@/api/auth.ts'
 import { useAuth } from '@/hooks/useAuth.ts'
 import { useDailyPuzzle } from '@/hooks/useDailyPuzzle.ts'
 import { useSubmitPuzzle } from '@/hooks/useSubmitPuzzle.ts'
@@ -288,7 +289,12 @@ function PuzzleSession({
       rememberDailyPlay(puzzle.assigned_date)
       setResult(response)
       if (response.streak != null && email) {
-        queryClient.setQueryData(['streak', email], { email, streak: response.streak })
+        queryClient.setQueryData<AccountRead>(['streak', email], (current) => ({
+          email,
+          streak: response.streak ?? 0,
+          total_score: (current?.total_score ?? 0) + (response.score ?? 0),
+        }))
+        void queryClient.invalidateQueries({ queryKey: ['streak', email] })
       }
       if (onDailySolved) onDailySolved(response, answer)
       else setModalOpen(true)

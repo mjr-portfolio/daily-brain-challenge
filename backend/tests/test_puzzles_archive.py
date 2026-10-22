@@ -215,9 +215,9 @@ async def test_archive_list_filters_puzzle_type(client, session, today_utc) -> N
 
 @pytest.mark.asyncio
 async def test_archive_list_completion_is_per_user(client, session, today_utc) -> None:
-    solved_day, missed_day = await _free_dates(session, today_utc - timedelta(days=1), 2)
+    solved_day, incorrect_day = await _free_dates(session, today_utc - timedelta(days=1), 2)
     puzzle = await create_puzzle(session, assigned=solved_day, solution=9)
-    missed = await create_puzzle(session, assigned=missed_day, solution=4)
+    incorrect = await create_puzzle(session, assigned=incorrect_day, solution=4)
     owner = await create_user(session)
     other = await create_user(session)
     session.add_all(
@@ -232,7 +232,7 @@ async def test_archive_list_completion_is_per_user(client, session, today_utc) -
             ),
             UserCompletion(
                 user_id=owner.id,
-                puzzle_id=missed.id,
+                puzzle_id=incorrect.id,
                 is_correct=False,
                 score=0,
                 time_taken_seconds=20,
@@ -259,12 +259,12 @@ async def test_archive_list_completion_is_per_user(client, session, today_utc) -
     assert completed["score"] == 80
     _assert_public_item(completed)
 
-    failed = await item_for(missed.id, auth_header(owner))
-    assert failed["is_completed"] is True
-    assert failed["is_correct"] is False
-    assert failed["score"] == 0
+    wrong = await item_for(incorrect.id, auth_header(owner))
+    assert wrong["is_completed"] is True
+    assert wrong["is_correct"] is False
+    assert wrong["score"] == 0
 
     await cleanup_user(session, owner.id)
     await cleanup_user(session, other.id)
     await cleanup_puzzle(session, puzzle.id)
-    await cleanup_puzzle(session, missed.id)
+    await cleanup_puzzle(session, incorrect.id)

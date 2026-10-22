@@ -15,6 +15,7 @@ class TokenResponse(BaseModel):
 class AccountRead(BaseModel):
     email: str
     streak: int
+    total_score: int
 
 
 class StreakAdopt(BaseModel):
