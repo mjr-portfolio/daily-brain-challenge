@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth.ts'
-import { useStreak } from '@/hooks/useStreak.ts'
+import { useStreak, useTotalScore } from '@/hooks/useStreak.ts'
 
 export function Navbar({ onOpenArchive }: { onOpenArchive: () => void }) {
   const streak = useStreak()
+  const totalScore = useTotalScore()
   const { isAuthenticated, email, logout, openAuthModal } = useAuth()
 
   return (
@@ -16,6 +17,11 @@ export function Navbar({ onOpenArchive }: { onOpenArchive: () => void }) {
           <FlameIcon />
           <span>{streak}</span>
         </p>
+        {totalScore != null ? (
+          <p className="text-sm text-slate-300" title="Total score">
+            {totalScore} pts
+          </p>
+        ) : null}
         <nav className="ml-auto flex items-center gap-3">
           <button
             type="button"

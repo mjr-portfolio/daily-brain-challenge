@@ -149,29 +149,29 @@ export function ArchiveModal({ open, onClose, onSelect }: ArchiveModalProps) {
   )
 }
 
-type ArchiveResult = 'solved' | 'missed' | 'unplayed'
+type ArchiveResult = 'solved' | 'incorrect' | 'unplayed'
 
 const RESULT_CARD: Record<ArchiveResult, string> = {
   solved: 'border-emerald-400/40 bg-emerald-400/10 hover:border-emerald-400',
-  missed: 'border-orange-400/40 bg-orange-400/10 hover:border-orange-400',
+  incorrect: 'border-orange-400/40 bg-orange-400/10 hover:border-orange-400',
   unplayed: 'border-slate-800 bg-slate-950 hover:border-slate-600',
 }
 
 const RESULT_TEXT: Record<ArchiveResult, string> = {
   solved: 'text-emerald-200',
-  missed: 'text-orange-200',
+  incorrect: 'text-orange-200',
   unplayed: 'text-slate-400',
 }
 
 const RESULT_DOT: Record<ArchiveResult, string> = {
   solved: 'bg-emerald-300',
-  missed: 'bg-orange-300',
+  incorrect: 'bg-orange-300',
   unplayed: 'bg-slate-500',
 }
 
 const RESULT_LABEL: Record<ArchiveResult, string> = {
   solved: 'Solved',
-  missed: 'Missed',
+  incorrect: 'Incorrect',
   unplayed: 'Unplayed',
 }
 
@@ -211,7 +211,7 @@ function ArchiveCard({ item, onSelect }: { item: ArchivePuzzleItem; onSelect: ()
 
 function archiveResult(item: ArchivePuzzleItem): ArchiveResult {
   if (!item.is_completed || item.is_correct == null) return 'unplayed'
-  return item.is_correct ? 'solved' : 'missed'
+  return item.is_correct ? 'solved' : 'incorrect'
 }
 
 function formatAssignedDate(value: string): string {

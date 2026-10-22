@@ -2,8 +2,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from app.models import UserCompletion
 from app.services.streak import apply_daily_result, display_streak
-from tests.conftest import auth_header, cleanup_user, create_user
+from tests.conftest import auth_header, cleanup_puzzle, cleanup_user, create_puzzle, create_user
 
 
 def test_display_streak_drops_after_a_missed_day() -> None:
@@ -60,3 +61,39 @@ async def test_adopt_streak_keeps_an_existing_account_streak(client, session) ->
     assert account.json()["streak"] == 4
 
     await cleanup_user(session, user.id)
+
+
+@pytest.mark.asyncio
+async def test_account_total_score_sums_every_completion(client, session) -> None:
+    user = await create_user(session)
+    solved = await create_puzzle(session, assigned=None, solution=9)
+    incorrect = await create_puzzle(session, assigned=None, solution=4)
+    session.add_all(
+        [
+            UserCompletion(
+                user_id=user.id,
+                puzzle_id=solved.id,
+                is_correct=True,
+                score=80,
+                time_taken_seconds=30,
+                is_daily_official=False,
+            ),
+            UserCompletion(
+                user_id=user.id,
+                puzzle_id=incorrect.id,
+                is_correct=False,
+                score=0,
+                time_taken_seconds=12,
+                is_daily_official=False,
+            ),
+        ]
+    )
+    await session.commit()
+
+    response = await client.get("/api/auth/me", headers=auth_header(user))
+    assert response.status_code == 200
+    assert response.json()["total_score"] == 80
+
+    await cleanup_user(session, user.id)
+    await cleanup_puzzle(session, solved.id)
+    await cleanup_puzzle(session, incorrect.id)
