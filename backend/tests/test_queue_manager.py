@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -98,6 +98,7 @@ async def test_claim_reserve_promotes_oldest(session, today_utc) -> None:
     older = Puzzle(
         puzzle_type=PuzzleType.PATTERN,
         assigned_date=None,
+        created_at=datetime(2000, 1, 1, tzinfo=UTC),
         content={
             "grid": [[1, 2, 3], [4, 5, 6], [7, 8, None]],
             "prompt": "n?",
@@ -110,6 +111,7 @@ async def test_claim_reserve_promotes_oldest(session, today_utc) -> None:
     newer = Puzzle(
         puzzle_type=PuzzleType.PATTERN,
         assigned_date=None,
+        created_at=datetime(2000, 1, 2, tzinfo=UTC),
         content={
             "grid": [[2, 4, 8], [3, 6, 12], [4, 8, None]],
             "prompt": "n?",
@@ -223,6 +225,7 @@ async def test_replenish_promotes_reserve_when_generation_fails(
     reserve = Puzzle(
         puzzle_type=desired,
         assigned_date=None,
+        created_at=datetime(2000, 1, 1, tzinfo=UTC),
         content=_fake_generated(desired, solution).content,
         solution_hash=hash_solution(solution),
         solution=solution,

@@ -1,15 +1,21 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { requestToken } from '@/api/auth.ts'
 import { migrateGuestDataToAccount } from '@/services/migration.ts'
 import {
   clearAuth,
+  clearGuestCompletions,
   getEmail,
   getToken,
+  listGuestCompletions,
+  markDailyPlayedLocally,
   setEmail,
   setToken,
+  utcToday,
 } from '@/utils/storage.ts'
 import {
   createContext,
   useCallback,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -31,9 +37,18 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export { AuthContext }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const [token, setTokenState] = useState<string | null>(() => getToken())
   const [email, setEmailState] = useState<string | null>(() => getEmail())
   const [authModalOpen, setAuthModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (!getToken()) return
+    keepTodayLocked()
+    void migrateGuestDataToAccount().finally(() => {
+      queryClient.invalidateQueries({ queryKey: ['streak'] })
+    })
+  }, [queryClient])
 
   const login = useCallback(async (nextEmail: string) => {
     const response = await requestToken(nextEmail)
@@ -42,13 +57,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenState(response.access_token)
     setEmailState(nextEmail)
     await migrateGuestDataToAccount()
-  }, [])
+    queryClient.removeQueries({ queryKey: ['puzzle'] })
+    queryClient.removeQueries({ queryKey: ['streak'] })
+  }, [queryClient])
 
   const logout = useCallback(() => {
+    keepTodayLocked()
     clearAuth()
+    clearGuestCompletions()
     setTokenState(null)
     setEmailState(null)
-  }, [])
+    queryClient.removeQueries({ queryKey: ['puzzle'] })
+    queryClient.removeQueries({ queryKey: ['streak'] })
+  }, [queryClient])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -65,5 +86,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function keepTodayLocked(): void {
+  const today = utcToday()
+  if (listGuestCompletions().some((entry) => entry.assignedDate === today)) {
+    markDailyPlayedLocally(today)
+  }
 }
 

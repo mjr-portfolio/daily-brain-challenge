@@ -6,28 +6,22 @@ from app.schemas.puzzle import (
     NewsQuizPuzzleRead,
     PatternContent,
     PatternPuzzleRead,
-    PuzzleCreate,
     PuzzleRead,
     ShapeItem,
 )
-from app.schemas.user import UserCreate, UserRead
-from app.schemas.user_completion import CompletionCreate, CompletionRead, SubmitResult
+from app.schemas.user_completion import CompletionCreate, SubmitResult
 
 __all__ = [
     "AnagramContent",
     "AnagramPuzzleRead",
     "CompletionCreate",
-    "CompletionRead",
     "NewsQuizContent",
     "NewsQuizPuzzleRead",
     "PatternContent",
     "PatternPuzzleRead",
-    "PuzzleCreate",
     "PuzzleRead",
     "ShapeItem",
     "SubmitResult",
     "TokenRequest",
     "TokenResponse",
-    "UserCreate",
-    "UserRead",
 ]

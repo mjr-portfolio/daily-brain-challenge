@@ -194,7 +194,7 @@ export function PatternBoard({ content, disabled, onSubmit }: PatternBoardProps)
           onClick={() => {
             if (selected != null) onSubmit(selected)
           }}
-          className="rounded-full bg-amber-400 px-5 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-full border border-amber-500 bg-amber-400 px-5 py-2 font-medium text-slate-950 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Submit
         </button>

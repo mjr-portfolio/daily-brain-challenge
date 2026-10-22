@@ -1,32 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-export function useTimer(running: boolean) {
-  const [seconds, setSeconds] = useState(0)
-  const startRef = useRef<number | null>(null)
-  const secondsRef = useRef(0)
+function elapsed(startedAtMs: number): number {
+  return Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+}
+
+export function useTimer(running: boolean, startedAtMs: number) {
+  const [seconds, setSeconds] = useState(() => elapsed(startedAtMs))
 
   useEffect(() => {
     if (!running) return
-
-    const origin = Date.now() - secondsRef.current * 1000
-    startRef.current = origin
-    const id = window.setInterval(() => {
-      const next = Math.floor((Date.now() - origin) / 1000)
-      secondsRef.current = next
-      setSeconds(next)
-    }, 200)
-
+    const tick = () => setSeconds(elapsed(startedAtMs))
+    tick()
+    const id = window.setInterval(tick, 200)
     return () => window.clearInterval(id)
-  }, [running])
+  }, [running, startedAtMs])
 
   const stop = useCallback(() => {
-    if (startRef.current != null) {
-      const next = Math.floor((Date.now() - startRef.current) / 1000)
-      secondsRef.current = next
-      setSeconds(next)
-    }
-    return secondsRef.current
-  }, [])
+    const next = elapsed(startedAtMs)
+    setSeconds(next)
+    return next
+  }, [startedAtMs])
 
   return { seconds, stop }
 }

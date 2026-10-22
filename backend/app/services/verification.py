@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import cast
 
 from fastapi import HTTPException, status
@@ -13,6 +13,8 @@ from app.schemas.puzzle import ShapeItem
 from app.schemas.user_completion import AnswerType, SubmitResult
 from app.services.hashing import hash_solution
 from app.services.percentile import compute_official_percentile
+from app.services.puzzles import get_puzzle_start
+from app.services.streak import apply_daily_result, display_streak
 
 
 _TEXT_PUZZLE_TYPES = {PuzzleType.ANAGRAM, PuzzleType.NEWS_QUIZ}
@@ -48,12 +50,22 @@ def _verify_text_answer(puzzle: Puzzle, answer: object) -> bool:
     return answer.strip().casefold() == solution.strip().casefold()
 
 
-def compute_score(is_correct: bool) -> int:
-    return 100 if is_correct else 0
+def compute_score(is_correct: bool, time_taken_seconds: int) -> int:
+    """100 for a correct answer within 10 seconds, then -1 per extra second, floored at 1."""
+    if not is_correct:
+        return 0
+    penalty = max(0, time_taken_seconds - 10)
+    return max(1, 100 - penalty)
 
 
 def is_daily_official(puzzle: Puzzle, today_utc: date) -> bool:
     return puzzle.assigned_date == today_utc
+
+
+def elapsed_seconds(started_at: datetime, now: datetime) -> int:
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    return max(0, int((now - started_at).total_seconds()))
 
 
 def _require_reveal(puzzle: Puzzle) -> tuple[AnswerType, str]:
@@ -101,6 +113,13 @@ async def verify_and_record_submission(
     user: User | None,
     today_utc: date,
 ) -> SubmitResult:
+    if user is None and not is_daily_official(puzzle, today_utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in to play archive puzzles",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     correct_answer, explanation = _require_reveal(puzzle)
     is_correct = verify_answer(puzzle, answer)
 
@@ -115,8 +134,23 @@ async def verify_and_record_submission(
             is_daily_official=None,
         )
 
-    official = is_daily_official(puzzle, today_utc)
-    score = compute_score(is_correct)
+    ranked = False
+    played_today = is_daily_official(puzzle, today_utc)
+    if played_today:
+        start = await get_puzzle_start(session, user.id, puzzle.id)
+        if start is not None:
+            time_taken_seconds = elapsed_seconds(start.started_at, datetime.now(UTC))
+            ranked = True
+        user.streak_count, user.streak_date = apply_daily_result(
+            user.streak_count,
+            user.streak_date,
+            today_utc,
+        )
+    elif user.streak_date is not None and display_streak(
+        user.streak_count, user.streak_date, today_utc
+    ) == 0:
+        user.streak_count = 0
+    score = compute_score(is_correct, time_taken_seconds)
     session.add(
         UserCompletion(
             user_id=user.id,
@@ -124,7 +158,7 @@ async def verify_and_record_submission(
             is_correct=is_correct,
             score=score,
             time_taken_seconds=time_taken_seconds,
-            is_daily_official=official,
+            is_daily_official=ranked,
         )
     )
     try:
@@ -137,7 +171,7 @@ async def verify_and_record_submission(
         ) from exc
 
     percentile = None
-    if official and is_correct:
+    if ranked and is_correct:
         percentile = await compute_official_percentile(
             session,
             puzzle_id=puzzle.id,
@@ -151,5 +185,6 @@ async def verify_and_record_submission(
         explanation=explanation,
         percentile=percentile,
         score=score,
-        is_daily_official=official,
+        is_daily_official=ranked,
+        streak=display_streak(user.streak_count, user.streak_date, today_utc),
     )

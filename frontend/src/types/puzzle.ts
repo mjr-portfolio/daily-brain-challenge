@@ -29,6 +29,7 @@ export type PatternPuzzle = {
   assigned_date: string | null
   created_at: string
   content: PatternContent
+  is_completed?: boolean
 }
 
 export type AnagramContent = {
@@ -43,6 +44,7 @@ export type AnagramPuzzle = {
   assigned_date: string | null
   created_at: string
   content: AnagramContent
+  is_completed?: boolean
 }
 
 export type NewsQuizContent = {
@@ -58,6 +60,7 @@ export type NewsQuizPuzzle = {
   assigned_date: string | null
   created_at: string
   content: NewsQuizContent
+  is_completed?: boolean
 }
 
 export type UnsupportedPuzzle = {
@@ -66,9 +69,40 @@ export type UnsupportedPuzzle = {
   assigned_date: string | null
   created_at: string
   content: Record<string, unknown>
+  is_completed?: boolean
 }
 
 export type Puzzle = PatternPuzzle | AnagramPuzzle | NewsQuizPuzzle | UnsupportedPuzzle
+
+export type ArchivePuzzleType = 'pattern' | 'anagram' | 'news_quiz'
+
+export type ArchivePuzzleItem = (PatternPuzzle | AnagramPuzzle | NewsQuizPuzzle) & {
+  assigned_date: string
+  is_completed: boolean
+  is_correct: boolean | null
+  score: number | null
+}
+
+export type DailyPreview = {
+  id: string
+  puzzle_type: ArchivePuzzleType
+  assigned_date: string
+  is_completed: boolean
+  started_at: string | null
+}
+
+export type DailySession = {
+  puzzle: Puzzle
+  started_at: string | null
+  server_now: string
+}
+
+export type ArchivePage = {
+  items: ArchivePuzzleItem[]
+  page: number
+  limit: number
+  total: number
+}
 
 export function isPatternPuzzle(puzzle: Puzzle): puzzle is PatternPuzzle {
   return puzzle.puzzle_type === 'pattern'

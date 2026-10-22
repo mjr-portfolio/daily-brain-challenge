@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.8-flash"
-    # Use gemini-3.8-flash for daily standard and gemini-3.5-flash-lite for filling the queue if 3+ are needed
+    GEMINI_FALLBACK_MODEL: str = "gemini-3.5-flash-lite"
+    # A bad puzzle retries GEMINI_MODEL immediately, then waits and tries GEMINI_FALLBACK_MODEL.
+    # Rate limits, timeouts, and server errors wait, retry the same model once, then wait and try the fallback.
 
     @property
     def is_development(self) -> bool:

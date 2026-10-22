@@ -15,6 +15,7 @@ export type SubmitResult = {
   percentile: number | null
   score: number | null
   is_daily_official: boolean | null
+  streak: number | null
 }
 
 export function formatAnswer(answer: AnswerType): string {

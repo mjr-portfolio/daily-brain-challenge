@@ -3,7 +3,11 @@ import type { AnswerType } from '@/types/submit.ts'
 const TOKEN_KEY = 'auth_token'
 const EMAIL_KEY = 'auth_email'
 const STREAK_KEY = 'guest_streak'
+const STREAK_DATE_KEY = 'guest_streak_date'
 const COMPLETIONS_KEY = 'guest_completions'
+const PLAYED_DAILY_DATES_KEY = 'played_daily_dates'
+const DAILY_STARTS_KEY = 'daily_started_at'
+const ARCHIVE_STARTS_KEY = 'archive_started_at'
 const STATS_EVENT = 'guest-stats'
 
 export type GuestCompletion = {
@@ -45,9 +49,38 @@ export function clearAuth(): void {
 }
 
 export function getStreak(): number {
+  return visibleGuestStreak()
+}
+
+export type GuestStreakRecord = {
+  count: number
+  lastDate: string | null
+}
+
+export function getGuestStreakRecord(): GuestStreakRecord {
   const raw = localStorage.getItem(STREAK_KEY)
-  const value = raw ? Number(raw) : 0
-  return Number.isFinite(value) ? value : 0
+  const count = raw ? Number(raw) : 0
+  return {
+    count: Number.isFinite(count) ? count : 0,
+    lastDate: localStorage.getItem(STREAK_DATE_KEY),
+  }
+}
+
+export function visibleGuestStreak(): number {
+  const today = utcToday()
+  const { count, lastDate } = getGuestStreakRecord()
+  const visible = displayStreak(count, lastDate, today)
+  if (lastDate && visible === 0 && count !== 0) {
+    localStorage.setItem(STREAK_KEY, '0')
+    notify()
+  }
+  return visible
+}
+
+export function clearGuestStreak(): void {
+  localStorage.removeItem(STREAK_KEY)
+  localStorage.removeItem(STREAK_DATE_KEY)
+  notify()
 }
 
 export function listGuestCompletions(): GuestCompletion[] {
@@ -70,12 +103,35 @@ export function clearGuestCompletions(): void {
   notify()
 }
 
+function listPlayedDailyDates(): string[] {
+  const raw = localStorage.getItem(PLAYED_DAILY_DATES_KEY)
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function markDailyPlayedLocally(assignedDate: string): void {
+  const dates = listPlayedDailyDates()
+  if (dates.includes(assignedDate)) return
+  dates.push(assignedDate)
+  localStorage.setItem(PLAYED_DAILY_DATES_KEY, JSON.stringify(dates))
+  notify()
+}
+
 export function hasCompletedDailyLocally(assignedDate: string): boolean {
+  if (listPlayedDailyDates().includes(assignedDate)) return true
   return listGuestCompletions().some((entry) => entry.assignedDate === assignedDate)
 }
 
-export function saveGuestCompletions(entries: GuestCompletion[]): void {
-  writeCompletions(entries)
+export function dropGuestCompletions(puzzleIds: string[]): void {
+  const drop = new Set(puzzleIds)
+  const entries = listGuestCompletions().filter((entry) => !drop.has(entry.puzzleId))
+  if (entries.length === 0) localStorage.removeItem(COMPLETIONS_KEY)
+  else writeCompletions(entries)
   notify()
 }
 
@@ -84,33 +140,93 @@ export function recordGuestCompletion(
 ): GuestCompletion {
   const list = listGuestCompletions()
   const existing = list.find((item) => item.puzzleId === entry.puzzleId)
-  if (existing) return existing
+  if (existing) {
+    if (existing.assignedDate === utcToday()) markDailyPlayedLocally(existing.assignedDate)
+    return existing
+  }
 
   const stored: GuestCompletion = { ...entry, countedForStreak: false }
   list.push(stored)
   writeCompletions(list)
+  if (entry.assignedDate === utcToday()) markDailyPlayedLocally(entry.assignedDate)
   notify()
   return stored
 }
 
-export function bumpStreakIfDaily(
-  puzzleId: string,
-  assignedDate: string | null,
-  isCorrect: boolean,
-): number {
-  const current = getStreak()
-  if (!isCorrect || assignedDate !== utcToday()) return current
+export function bumpStreakIfDaily(puzzleId: string, assignedDate: string | null): number {
+  const today = utcToday()
+  if (assignedDate !== today) return visibleGuestStreak()
 
   const list = listGuestCompletions()
   const entry = list.find((item) => item.puzzleId === puzzleId)
-  if (!entry || entry.countedForStreak) return current
+  if (!entry || entry.countedForStreak) return visibleGuestStreak()
 
   entry.countedForStreak = true
   writeCompletions(list)
-  const next = current + 1
-  localStorage.setItem(STREAK_KEY, String(next))
+  const { count, lastDate } = getGuestStreakRecord()
+  const visible = displayStreak(count, lastDate, today)
+  const next = lastDate === shiftUtcDate(today, -1) && visible > 0 ? visible + 1 : 1
+  return writeGuestStreak(next, today)
+}
+
+function writeGuestStreak(count: number, lastDate: string): number {
+  localStorage.setItem(STREAK_KEY, String(count))
+  localStorage.setItem(STREAK_DATE_KEY, lastDate)
   notify()
-  return next
+  return count
+}
+
+function displayStreak(count: number, lastDate: string | null, today: string): number {
+  if (!lastDate || lastDate < shiftUtcDate(today, -1)) return 0
+  return Math.max(0, count)
+}
+
+function shiftUtcDate(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+export function getDailyStartedAt(puzzleId: string): number | null {
+  return readStamp(DAILY_STARTS_KEY, puzzleId)
+}
+
+export function markDailyStarted(puzzleId: string): number {
+  return ensureStamp(DAILY_STARTS_KEY, puzzleId)
+}
+
+export function ensureArchiveStarted(puzzleId: string): number {
+  return ensureStamp(ARCHIVE_STARTS_KEY, puzzleId)
+}
+
+function readStamps(key: string): Record<string, number> {
+  const raw = localStorage.getItem(key)
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function readStamp(key: string, puzzleId: string): number | null {
+  const value = readStamps(key)[puzzleId]
+  return typeof value === 'number' ? value : null
+}
+
+function ensureStamp(key: string, puzzleId: string): number {
+  const stamps = readStamps(key)
+  const existing = stamps[puzzleId]
+  if (typeof existing === 'number') return existing
+  const now = Date.now()
+  stamps[puzzleId] = now
+  localStorage.setItem(key, JSON.stringify(stamps))
+  return now
 }
 
 export function subscribeGuestStats(listener: () => void): () => void {

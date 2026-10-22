@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 import random
 import re
+import time
+
+import httpx
+from google.genai.errors import APIError, ServerError
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -71,6 +75,22 @@ class GenerationError(RuntimeError):
     """Raised when Gemini generation or validation fails."""
 
 
+class PermanentGeminiError(GenerationError):
+    """API key, permission, or rejected-request errors. Do not retry these."""
+
+
+class TransientGeminiError(Exception):
+    """Rate limit, timeout, or Gemini outage. `delay` is the wait before a retry."""
+
+    def __init__(self, delay: float, message: str):
+        self.delay = delay
+        super().__init__(message)
+
+
+_SERVICE_DELAY = 13.0
+_TRANSIENT_CLIENT_CODES = {408, 429}
+
+
 def _require_api_key() -> str:
     key = get_settings().GEMINI_API_KEY
     if not key:
@@ -83,14 +103,14 @@ def _generate_structured[T: BaseModel](
     schema: type[T],
     *,
     system_instruction: str,
+    model: str,
 ) -> T:
     """Create a fresh Client per call (safe for asyncio.to_thread workers)."""
-    settings = get_settings()
     # Never reuse a module-level/shared Client across threads — each worker owns
     # its own HTTP session for the duration of this call.
     with genai.Client(api_key=_require_api_key()) as client:
         response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
+            model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
@@ -112,6 +132,91 @@ def _generate_structured[T: BaseModel](
             ) from exc
 
 
+def _retry_delay(exc: APIError) -> float:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return _SERVICE_DELAY
+    raw = headers.get("retry-after") or headers.get("Retry-After")
+    if raw is None:
+        return _SERVICE_DELAY
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return _SERVICE_DELAY
+
+
+def _classify_api_error(exc: APIError) -> None:
+    if isinstance(exc, ServerError) or exc.code in _TRANSIENT_CLIENT_CODES:
+        raise TransientGeminiError(_retry_delay(exc), str(exc)) from exc
+    raise PermanentGeminiError(f"Gemini request rejected: {exc}") from exc
+
+
+def _generate_once[T: BaseModel](
+    prompt: str,
+    schema: type[T],
+    *,
+    system_instruction: str,
+    model: str,
+    check: Callable[[T], None],
+) -> T:
+    try:
+        raw = _generate_structured(
+            prompt,
+            schema,
+            system_instruction=system_instruction,
+            model=model,
+        )
+    except APIError as exc:
+        _classify_api_error(exc)
+        raise
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
+        raise TransientGeminiError(_SERVICE_DELAY, str(exc)) from exc
+    check(raw)
+    return raw
+
+
+def _attempt_model[T: BaseModel](
+    prompt: str,
+    schema: type[T],
+    *,
+    system_instruction: str,
+    model: str,
+    check: Callable[[T], None],
+) -> T:
+    """Two immediate tries for a bad puzzle. A service error waits, then tries once more."""
+    error: GenerationError | None = None
+    for _ in range(2):
+        try:
+            return _generate_once(
+                prompt,
+                schema,
+                system_instruction=system_instruction,
+                model=model,
+                check=check,
+            )
+        except TransientGeminiError as exc:
+            time.sleep(exc.delay)
+            try:
+                return _generate_once(
+                    prompt,
+                    schema,
+                    system_instruction=system_instruction,
+                    model=model,
+                    check=check,
+                )
+            except PermanentGeminiError:
+                raise
+            except GenerationError as inner:
+                error = inner
+        except PermanentGeminiError:
+            raise
+        except GenerationError as exc:
+            error = exc
+    assert error is not None
+    raise error
+
+
 def _generate_checked[T: BaseModel](
     prompt: str,
     schema: type[T],
@@ -119,17 +224,29 @@ def _generate_checked[T: BaseModel](
     system_instruction: str,
     check: Callable[[T], None],
 ) -> T:
-    """Call Gemini, then retry once if the payload fails a structural check."""
+    """Try the primary model, then the fallback model after a service pause."""
+    settings = get_settings()
+    models = [settings.GEMINI_MODEL]
+    if settings.GEMINI_FALLBACK_MODEL and settings.GEMINI_FALLBACK_MODEL != settings.GEMINI_MODEL:
+        models.append(settings.GEMINI_FALLBACK_MODEL)
     error: GenerationError | None = None
-    for _ in range(2):
+    for index, model in enumerate(models):
+        if index:
+            time.sleep(_SERVICE_DELAY)
         try:
-            raw = _generate_structured(
+            return _attempt_model(
                 prompt,
                 schema,
                 system_instruction=system_instruction,
+                model=model,
+                check=check,
             )
-            check(raw)
-            return raw
+        except TransientGeminiError as exc:
+            error = GenerationError(str(exc))
+            if index == len(models) - 1:
+                raise error from exc
+        except PermanentGeminiError:
+            raise
         except GenerationError as exc:
             error = exc
     assert error is not None
