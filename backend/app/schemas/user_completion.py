@@ -1,7 +1,4 @@
-from datetime import datetime
-from uuid import UUID
-
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from app.schemas.puzzle import ShapeItem
 
@@ -11,19 +8,6 @@ AnswerType = int | str | list[int | str] | ShapeItem
 class CompletionCreate(BaseModel):
     answer: AnswerType
     time_taken_seconds: int = Field(ge=0)
-
-
-class CompletionRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    user_id: UUID | None
-    puzzle_id: UUID
-    is_correct: bool
-    score: int
-    time_taken_seconds: int
-    is_daily_official: bool
-    completed_at: datetime
 
 
 class SubmitResult(BaseModel):
@@ -36,3 +20,4 @@ class SubmitResult(BaseModel):
     percentile: float | None = None
     score: int | None = None
     is_daily_official: bool | None = None
+    streak: int | None = None

@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth.ts'
 import { useGuestStreak } from '@/hooks/useGuestStreak.ts'
 import { formatTime } from '@/utils/time.ts'
@@ -8,25 +6,25 @@ import { formatAnswer, type AnswerType, type SubmitResult } from '@/types/submit
 
 type SubmissionModalProps = {
   open: boolean
-  mode: 'daily' | 'archive'
   result: SubmitResult | null
   selectedAnswer: AnswerType | null
   onClose: () => void
+  onOpenArchive: () => void
+  timingNote?: string | null
 }
 
 export function SubmissionModal({
   open,
-  mode,
   result,
   selectedAnswer,
   onClose,
+  onOpenArchive,
+  timingNote = null,
 }: SubmissionModalProps) {
   const { isAuthenticated, openAuthModal } = useAuth()
   const openedAsGuest = useRef(!isAuthenticated)
   const closedAfterLogin = useRef(false)
   const streak = useGuestStreak()
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
 
   useEffect(() => {
     if (!openedAsGuest.current || !isAuthenticated || closedAfterLogin.current) return
@@ -36,13 +34,9 @@ export function SubmissionModal({
 
   if (!open || !result) return null
 
-  async function playArchive() {
-    await queryClient.invalidateQueries({ queryKey: ['puzzle', 'archive', 'next'] })
-    if (mode === 'archive') {
-      onClose()
-      return
-    }
-    await navigate('/archive')
+  function openArchive() {
+    onClose()
+    onOpenArchive()
   }
 
   const percentileLabel =
@@ -63,6 +57,7 @@ export function SubmissionModal({
           Correct answer: {formatAnswer(result.correct_answer)}
         </p>
         <p className="mt-2 text-slate-300">Time: {formatTime(result.time_taken_seconds)}</p>
+        {timingNote ? <p className="mt-1 text-sm text-slate-400">{timingNote}</p> : null}
         {isAuthenticated ? (
           <div className="mt-3 space-y-2 text-slate-200">
             {result.score != null ? <p>Score: {result.score}</p> : null}
@@ -71,10 +66,10 @@ export function SubmissionModal({
             ) : null}
             <button
               type="button"
-              onClick={() => void playArchive()}
-              className="mt-2 rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950"
+              onClick={openArchive}
+              className="mt-2 rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
             >
-              {mode === 'archive' ? 'Next puzzle' : 'Play archive'}
+              Archive
             </button>
           </div>
         ) : (
@@ -87,7 +82,7 @@ export function SubmissionModal({
             <button
               type="button"
               onClick={openAuthModal}
-              className="rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950"
+              className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
             >
               Sign up
             </button>

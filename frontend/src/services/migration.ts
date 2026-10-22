@@ -1,17 +1,30 @@
 import { ApiError } from '@/api/client.ts'
+import { adoptGuestStreak } from '@/api/auth.ts'
 import { submitPuzzle } from '@/api/puzzles.ts'
 import {
-  clearGuestCompletions,
+  clearGuestStreak,
+  dropGuestCompletions,
+  getGuestStreakRecord,
   listGuestCompletions,
-  saveGuestCompletions,
+  markDailyPlayedLocally,
   utcToday,
 } from '@/utils/storage.ts'
 
 export async function migrateGuestDataToAccount(): Promise<string[]> {
+  const record = getGuestStreakRecord()
+  try {
+    await adoptGuestStreak(record.count, record.lastDate)
+    clearGuestStreak()
+  } catch {
+    // Leave the browser streak in place so a later sign-in can try again.
+  }
+
   const pending = listGuestCompletions()
   const failures: string[] = []
 
+  const today = utcToday()
   for (const entry of pending) {
+    if (entry.assignedDate === today) markDailyPlayedLocally(today)
     try {
       await submitPuzzle(entry.puzzleId, {
         answer: entry.answer,
@@ -23,8 +36,7 @@ export async function migrateGuestDataToAccount(): Promise<string[]> {
     }
   }
 
-  const todayEntries = pending.filter((entry) => entry.assignedDate === utcToday())
-  clearGuestCompletions()
-  if (todayEntries.length > 0) saveGuestCompletions(todayEntries)
+  const failed = new Set(failures)
+  dropGuestCompletions(pending.filter((entry) => !failed.has(entry.puzzleId)).map((entry) => entry.puzzleId))
   return failures
 }

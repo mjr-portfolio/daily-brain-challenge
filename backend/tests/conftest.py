@@ -14,7 +14,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.main import app
-from app.models import Puzzle, PuzzleType, User, UserCompletion
+from app.models import Puzzle, PuzzleStart, PuzzleType, User, UserCompletion
 from app.services.hashing import hash_solution
 
 
@@ -42,18 +42,37 @@ async def engine():
 
 
 @pytest_asyncio.fixture
-async def session(engine) -> AsyncIterator[AsyncSession]:
-    Session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
-    async with Session() as db:
+async def db_connection(engine):
+    """One open transaction for the test. Closing it rolls every write back."""
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            yield connection
+        finally:
+            await transaction.rollback()
+
+
+def _test_sessions(connection):
+    return async_sessionmaker(
+        bind=connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+
+@pytest_asyncio.fixture
+async def session(db_connection) -> AsyncIterator[AsyncSession]:
+    async with _test_sessions(db_connection)() as db:
         yield db
 
 
 @pytest_asyncio.fixture
-async def client(engine) -> AsyncIterator[AsyncClient]:
-    Session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+async def client(db_connection) -> AsyncIterator[AsyncClient]:
+    sessions = _test_sessions(db_connection)
 
     async def override_get_db() -> AsyncIterator[AsyncSession]:
-        async with Session() as db:
+        async with sessions() as db:
             yield db
 
     app.dependency_overrides[get_db] = override_get_db
@@ -105,6 +124,21 @@ async def create_puzzle(
     await session.commit()
     await session.refresh(puzzle)
     return puzzle
+
+
+async def create_puzzle_start(
+    session: AsyncSession,
+    user: User,
+    puzzle: Puzzle,
+    *,
+    seconds_ago: int = 0,
+) -> datetime:
+    started_at = datetime.now(UTC) - timedelta(seconds=seconds_ago)
+    session.add(
+        PuzzleStart(user_id=user.id, puzzle_id=puzzle.id, started_at=started_at)
+    )
+    await session.commit()
+    return started_at
 
 
 async def cleanup_puzzle(session: AsyncSession, puzzle_id) -> None:

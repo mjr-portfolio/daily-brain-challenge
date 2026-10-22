@@ -5,10 +5,12 @@ from sqlalchemy import func, select
 import pytest
 
 from app.models import UserCompletion
+from app.services.verification import compute_score
 from tests.conftest import (
     auth_header,
     cleanup_puzzle,
     cleanup_user,
+    create_puzzle_start,
     create_user,
     replace_daily_puzzle,
 )
@@ -60,19 +62,23 @@ async def test_guest_incorrect_no_persistence(client, session, today_utc) -> Non
 async def test_auth_correct_official_persists_and_percentile(client, session, today_utc) -> None:
     puzzle = await replace_daily_puzzle(session, today_utc, solution=9)
     user = await create_user(session)
+    await create_puzzle_start(session, user, puzzle, seconds_ago=25)
 
     response = await client.post(
         f"/api/puzzles/{puzzle.id}/submit",
-        json={"answer": 9, "time_taken_seconds": 25},
+        json={"answer": 9, "time_taken_seconds": 1},
         headers=auth_header(user),
     )
     assert response.status_code == 200
     body = response.json()
     assert body["is_correct"] is True
     assert body["is_daily_official"] is True
-    assert body["score"] == 100
+    assert body["time_taken_seconds"] >= 25
+    assert body["time_taken_seconds"] < 40
+    assert body["score"] == compute_score(True, body["time_taken_seconds"])
     assert isinstance(body["percentile"], float)
     assert body["percentile"] == 100.0
+    assert body["streak"] == 1
     assert body["correct_answer"] == 9
     assert body["explanation"]
 
@@ -94,10 +100,11 @@ async def test_auth_correct_official_persists_and_percentile(client, session, to
 async def test_auth_incorrect_persists_without_percentile(client, session, today_utc) -> None:
     puzzle = await replace_daily_puzzle(session, today_utc, solution=9)
     user = await create_user(session)
+    await create_puzzle_start(session, user, puzzle, seconds_ago=40)
 
     response = await client.post(
         f"/api/puzzles/{puzzle.id}/submit",
-        json={"answer": 10, "time_taken_seconds": 40},
+        json={"answer": 10, "time_taken_seconds": 1},
         headers=auth_header(user),
     )
     assert response.status_code == 200
@@ -127,6 +134,7 @@ async def test_auth_incorrect_persists_without_percentile(client, session, today
 async def test_auth_duplicate_submit_conflict(client, session, today_utc) -> None:
     puzzle = await replace_daily_puzzle(session, today_utc, solution=9)
     user = await create_user(session)
+    await create_puzzle_start(session, user, puzzle, seconds_ago=20)
     headers = auth_header(user)
 
     first = await client.post(
@@ -142,6 +150,38 @@ async def test_auth_duplicate_submit_conflict(client, session, today_utc) -> Non
         headers=headers,
     )
     assert second.status_code == 409
+
+    await cleanup_user(session, user.id)
+    await cleanup_puzzle(session, puzzle.id)
+    await replace_daily_puzzle(session, today_utc, solution=9)
+
+
+@pytest.mark.asyncio
+async def test_auth_submit_without_start_is_unranked(client, session, today_utc) -> None:
+    puzzle = await replace_daily_puzzle(session, today_utc, solution=9)
+    user = await create_user(session)
+
+    response = await client.post(
+        f"/api/puzzles/{puzzle.id}/submit",
+        json={"answer": 9, "time_taken_seconds": 8},
+        headers=auth_header(user),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_correct"] is True
+    assert body["time_taken_seconds"] == 8
+    assert body["score"] == 100
+    assert body["percentile"] is None
+    assert body["is_daily_official"] is False
+
+    row = await session.scalar(
+        select(UserCompletion).where(
+            UserCompletion.user_id == user.id,
+            UserCompletion.puzzle_id == puzzle.id,
+        )
+    )
+    assert row is not None
+    assert row.is_daily_official is False
 
     await cleanup_user(session, user.id)
     await cleanup_puzzle(session, puzzle.id)

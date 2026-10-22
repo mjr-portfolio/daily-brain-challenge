@@ -82,8 +82,11 @@ def test_news_quiz_non_string_solution_is_unavailable() -> None:
 
 
 def test_compute_score() -> None:
-    assert compute_score(True) == 100
-    assert compute_score(False) == 0
+    assert compute_score(True, 8) == 100
+    assert compute_score(True, 10) == 100
+    assert compute_score(True, 25) == 85
+    assert compute_score(True, 200) == 1
+    assert compute_score(False, 5) == 0
 
 
 def test_is_daily_official() -> None:

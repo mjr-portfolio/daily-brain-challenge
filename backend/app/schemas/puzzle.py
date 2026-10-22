@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -57,19 +57,13 @@ class NewsQuizContent(BaseModel):
     hint: str | None = None
 
 
-class PuzzleCreate(BaseModel):
-    puzzle_type: PuzzleType
-    assigned_date: date | None = None
-    content: dict[str, Any]
-    solution_hash: str
-
-
 class PuzzleReadBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     assigned_date: date | None
     created_at: datetime
+    is_completed: bool = False
 
 
 class PatternPuzzleRead(PuzzleReadBase):
@@ -91,3 +85,51 @@ PuzzleRead = Annotated[
     PatternPuzzleRead | AnagramPuzzleRead | NewsQuizPuzzleRead,
     Field(discriminator="puzzle_type"),
 ]
+
+
+class PatternArchiveItem(PatternPuzzleRead):
+    assigned_date: date
+    is_completed: bool
+    is_correct: bool | None = None
+    score: int | None = None
+
+
+class AnagramArchiveItem(AnagramPuzzleRead):
+    assigned_date: date
+    is_completed: bool
+    is_correct: bool | None = None
+    score: int | None = None
+
+
+class NewsQuizArchiveItem(NewsQuizPuzzleRead):
+    assigned_date: date
+    is_completed: bool
+    is_correct: bool | None = None
+    score: int | None = None
+
+
+ArchivePuzzleItem = Annotated[
+    PatternArchiveItem | AnagramArchiveItem | NewsQuizArchiveItem,
+    Field(discriminator="puzzle_type"),
+]
+
+
+class ArchivePage(BaseModel):
+    items: list[ArchivePuzzleItem]
+    page: int
+    limit: int
+    total: int
+
+
+class DailyPreview(BaseModel):
+    id: UUID
+    puzzle_type: PuzzleType
+    assigned_date: date
+    is_completed: bool = False
+    started_at: datetime | None = None
+
+
+class DailySession(BaseModel):
+    puzzle: PuzzleRead
+    started_at: datetime | None = None
+    server_now: datetime

@@ -170,7 +170,7 @@ export function AnagramBoard({ content, disabled, onSubmit }: AnagramBoardProps)
           type="button"
           disabled={disabled || !complete}
           onClick={() => onSubmit(answer)}
-          className="rounded-full bg-amber-400 px-5 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-full border border-amber-500 bg-amber-400 px-5 py-2 font-medium text-slate-950 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Submit Answer
         </button>

@@ -1,4 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from datetime import date
+
+from pydantic import BaseModel, EmailStr, Field
 
 
 class TokenRequest(BaseModel):
@@ -8,3 +10,13 @@ class TokenRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class AccountRead(BaseModel):
+    email: str
+    streak: int
+
+
+class StreakAdopt(BaseModel):
+    count: int = Field(ge=0)
+    last_date: date | None = None

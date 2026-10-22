@@ -57,7 +57,7 @@ export function AuthModal() {
           <button
             type="submit"
             disabled={pending}
-            className="rounded-lg bg-amber-400 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-60"
+            className="rounded-lg border border-amber-500 bg-amber-400 px-3 py-2 text-sm font-medium text-slate-950 hover:border-slate-950 disabled:opacity-60"
           >
             {pending ? 'Signing in…' : 'Continue'}
           </button>

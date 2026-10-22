@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth.ts'
-import { useGuestStreak } from '@/hooks/useGuestStreak.ts'
+import { useStreak } from '@/hooks/useStreak.ts'
 
-export function Navbar() {
-  const streak = useGuestStreak()
+export function Navbar({ onOpenArchive }: { onOpenArchive: () => void }) {
+  const streak = useStreak()
   const { isAuthenticated, email, logout, openAuthModal } = useAuth()
 
   return (
@@ -17,21 +17,13 @@ export function Navbar() {
           <span>{streak}</span>
         </p>
         <nav className="ml-auto flex items-center gap-3">
-          {isAuthenticated ? (
-            <Link
-              to="/archive"
-              className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-200 hover:border-amber-400"
-            >
-              Archive
-            </Link>
-          ) : (
-            <span
-              className="cursor-not-allowed rounded-full border border-slate-800 px-3 py-1 text-sm text-slate-500"
-              title="Sign in to play past puzzles"
-            >
-              Archive
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={onOpenArchive}
+            className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-200 hover:border-amber-400"
+          >
+            Archive
+          </button>
           {isAuthenticated ? (
             <div className="flex items-center gap-2">
               <span className="max-w-40 truncate text-sm text-slate-300">{email}</span>
@@ -47,7 +39,7 @@ export function Navbar() {
             <button
               type="button"
               onClick={openAuthModal}
-              className="rounded-full bg-amber-400 px-3 py-1 text-sm font-medium text-slate-950 hover:bg-amber-300"
+              className="rounded-full border border-amber-500 bg-amber-400 px-3 py-1 text-sm font-medium text-slate-950 hover:border-slate-950"
             >
               Sign in
             </button>
