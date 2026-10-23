@@ -1,4 +1,5 @@
 import { request } from '@/api/client.ts'
+import type { ArchiveBenchmark, DailyLeaderboard, LeaderboardLimit } from '@/types/leaderboard.ts'
 import type { ArchivePage, ArchivePuzzleType, DailyPreview, DailySession } from '@/types/puzzle.ts'
 import type { SubmitPayload, SubmitResult } from '@/types/submit.ts'
 
@@ -25,6 +26,14 @@ export function getPuzzleArchive({
   })
   if (puzzleType) search.set('puzzle_type', puzzleType)
   return request<ArchivePage>(`/puzzles/archive?${search.toString()}`)
+}
+
+export function getDailyLeaderboard(limit: LeaderboardLimit = 25): Promise<DailyLeaderboard> {
+  return request<DailyLeaderboard>(`/puzzles/daily/leaderboard?limit=${limit}`)
+}
+
+export function getArchiveBenchmark(id: string): Promise<ArchiveBenchmark> {
+  return request<ArchiveBenchmark>(`/puzzles/archive/${id}/benchmark`)
 }
 
 export function submitPuzzle(id: string, payload: SubmitPayload): Promise<SubmitResult> {

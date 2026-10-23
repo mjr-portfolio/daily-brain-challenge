@@ -146,6 +146,7 @@ async def verify_and_record_submission(
             user.streak_date,
             today_utc,
         )
+        user.best_streak = max(user.best_streak, user.streak_count)
     elif user.streak_date is not None and display_streak(
         user.streak_count, user.streak_date, today_utc
     ) == 0:

@@ -5,8 +5,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.deps import CurrentUser, DbSession, OptionalUser
 from app.models.puzzle import PuzzleType
+from app.schemas.leaderboard import ArchiveBenchmark, LeaderboardRead
 from app.schemas.puzzle import ArchivePage, DailyPreview, DailySession
 from app.schemas.user_completion import CompletionCreate, SubmitResult
+from app.services.benchmark import archive_benchmark
+from app.services.leaderboard import daily_leaderboard
 from app.services.puzzles import (
     begin_puzzle,
     get_daily_puzzle,
@@ -19,6 +22,8 @@ from app.services.puzzles import (
 from app.services.verification import verify_and_record_submission
 
 router = APIRouter(prefix="/puzzles", tags=["puzzles"])
+
+_LEADERBOARD_LIMITS = {10, 25, 50, 100}
 
 
 def _today_utc():
@@ -69,6 +74,25 @@ async def start_daily(db: DbSession, current_user: OptionalUser) -> DailySession
     )
 
 
+@router.get("/daily/leaderboard", response_model=LeaderboardRead)
+async def get_daily_leaderboard(
+    db: DbSession,
+    current_user: OptionalUser,
+    limit: int = Query(default=25),
+) -> LeaderboardRead:
+    if limit not in _LEADERBOARD_LIMITS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="limit must be one of 10, 25, 50, 100",
+        )
+    return await daily_leaderboard(
+        db,
+        _today_utc(),
+        viewer_id=None if current_user is None else current_user.id,
+        limit=limit,
+    )
+
+
 @router.post("/{puzzle_id}/submit", response_model=SubmitResult)
 async def submit_puzzle(
     puzzle_id: UUID,
@@ -108,4 +132,18 @@ async def get_archive(
         limit=limit,
         puzzle_type=puzzle_type,
         user_id=current_user.id,
+    )
+
+
+@router.get("/archive/{puzzle_id}/benchmark", response_model=ArchiveBenchmark)
+async def get_archive_benchmark(
+    puzzle_id: UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ArchiveBenchmark:
+    return await archive_benchmark(
+        db,
+        puzzle_id,
+        viewer_id=current_user.id,
+        today=_today_utc(),
     )

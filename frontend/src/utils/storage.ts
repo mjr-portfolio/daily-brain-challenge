@@ -8,6 +8,8 @@ const COMPLETIONS_KEY = 'guest_completions'
 const PLAYED_DAILY_DATES_KEY = 'played_daily_dates'
 const DAILY_STARTS_KEY = 'daily_started_at'
 const ARCHIVE_STARTS_KEY = 'archive_started_at'
+const GUEST_SCOPE = 'guest'
+const START_LIMIT_MS = 60 * 60 * 1000
 const STATS_EVENT = 'guest-stats'
 
 export type GuestCompletion = {
@@ -189,43 +191,59 @@ function shiftUtcDate(isoDate: string, days: number): string {
 }
 
 export function getDailyStartedAt(puzzleId: string): number | null {
-  return readStamp(DAILY_STARTS_KEY, puzzleId)
+  return readFreshStamp(DAILY_STARTS_KEY, GUEST_SCOPE, puzzleId)
 }
 
 export function markDailyStarted(puzzleId: string): number {
-  return ensureStamp(DAILY_STARTS_KEY, puzzleId)
+  return ensureFreshStamp(DAILY_STARTS_KEY, GUEST_SCOPE, puzzleId)
 }
 
-export function ensureArchiveStarted(puzzleId: string): number {
-  return ensureStamp(ARCHIVE_STARTS_KEY, puzzleId)
+export function ensureArchiveStarted(puzzleId: string, accountKey: string): number {
+  return ensureFreshStamp(ARCHIVE_STARTS_KEY, accountKey, puzzleId)
 }
 
-function readStamps(key: string): Record<string, number> {
+type StampBook = Record<string, Record<string, number>>
+
+function readBook(key: string): StampBook {
   const raw = localStorage.getItem(key)
   if (!raw) return {}
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
-    )
+    const book: StampBook = {}
+    for (const [scope, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const stamps = Object.fromEntries(
+        Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+      )
+      if (Object.keys(stamps).length > 0) book[scope] = stamps
+    }
+    return book
   } catch {
     return {}
   }
 }
 
-function readStamp(key: string, puzzleId: string): number | null {
-  const value = readStamps(key)[puzzleId]
-  return typeof value === 'number' ? value : null
+function writeBook(key: string, book: StampBook): void {
+  localStorage.setItem(key, JSON.stringify(book))
 }
 
-function ensureStamp(key: string, puzzleId: string): number {
-  const stamps = readStamps(key)
+function readFreshStamp(key: string, scope: string, puzzleId: string): number | null {
+  const existing = readBook(key)[scope]?.[puzzleId]
+  if (typeof existing !== 'number') return null
+  if (Date.now() - existing > START_LIMIT_MS) return null
+  return existing
+}
+
+function ensureFreshStamp(key: string, scope: string, puzzleId: string): number {
+  const book = readBook(key)
+  const stamps = book[scope] ?? {}
   const existing = stamps[puzzleId]
-  if (typeof existing === 'number') return existing
   const now = Date.now()
+  if (typeof existing === 'number' && now - existing <= START_LIMIT_MS) return existing
   stamps[puzzleId] = now
-  localStorage.setItem(key, JSON.stringify(stamps))
+  book[scope] = stamps
+  writeBook(key, book)
   return now
 }
 

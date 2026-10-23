@@ -4,8 +4,10 @@ import { ApiError } from '@/api/client.ts'
 import { startDaily } from '@/api/puzzles.ts'
 import { AnagramBoard } from '@/components/puzzles/AnagramBoard.tsx'
 import { NewsQuizBoard } from '@/components/puzzles/NewsQuizBoard.tsx'
+import { ArchiveCompletionModal } from '@/components/ArchiveCompletionModal.tsx'
+import { DailyCompletionModal } from '@/components/DailyCompletionModal.tsx'
+import { LeaderboardModal } from '@/components/LeaderboardPanel.tsx'
 import { PatternBoard } from '@/components/PatternBoard.tsx'
-import { SubmissionModal } from '@/components/SubmissionModal.tsx'
 import { Timer } from '@/components/Timer.tsx'
 import type { AccountRead } from '@/api/auth.ts'
 import { useAuth } from '@/hooks/useAuth.ts'
@@ -13,6 +15,7 @@ import { useDailyPuzzle } from '@/hooks/useDailyPuzzle.ts'
 import { useSubmitPuzzle } from '@/hooks/useSubmitPuzzle.ts'
 import { useTimer } from '@/hooks/useTimer.ts'
 import { useStreak } from '@/hooks/useStreak.ts'
+import { userStatsKey } from '@/hooks/useUserStats.ts'
 import {
   isAnagramPuzzle,
   isNewsQuizPuzzle,
@@ -214,20 +217,16 @@ function DailyChallenge({
   return (
     <>
       {board}
-      <SubmissionModal
+      <DailyCompletionModal
         open={heldResult != null}
         result={heldResult}
         selectedAnswer={heldAnswer}
+        puzzleType={preview?.puzzle_type ?? 'pattern'}
+        assignedDate={preview?.assigned_date ?? null}
         onClose={() => {
           if (heldResult == null) return
           setHeldResult(null)
           onLeaveResult()
-        }}
-        onOpenArchive={() => {
-          if (heldResult == null) return
-          setHeldResult(null)
-          onLeaveResult()
-          onOpenArchive()
         }}
         timingNote="Timed from when you started."
       />
@@ -256,18 +255,18 @@ function PuzzleSession({
   const queryClient = useQueryClient()
   const submit = useSubmitPuzzle()
   const [result, setResult] = useState<SubmitResult | null>(null)
-  const [selectedAnswer, setSelectedAnswer] = useState<AnswerType | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   const [origin] = useState(() =>
-    mode === 'archive' ? ensureArchiveStarted(puzzle.id) : (startedAtMs ?? Date.now()),
+    mode === 'archive'
+      ? ensureArchiveStarted(puzzle.id, email ?? 'guest')
+      : (startedAtMs ?? Date.now()),
   )
   const timer = useTimer(result == null && !showCompleted, origin)
 
   async function handleSubmit(answer: AnswerType) {
     const seconds = timer.stop()
-    setSelectedAnswer(answer)
     setSubmitError(null)
     try {
       const response = await submit.mutateAsync({
@@ -295,6 +294,7 @@ function PuzzleSession({
           total_score: (current?.total_score ?? 0) + (response.score ?? 0),
         }))
         void queryClient.invalidateQueries({ queryKey: ['streak', email] })
+        void queryClient.invalidateQueries({ queryKey: userStatsKey(email) })
       }
       if (onDailySolved) onDailySolved(response, answer)
       else setModalOpen(true)
@@ -358,15 +358,11 @@ function PuzzleSession({
       ) : null}
       <PuzzleBody puzzle={puzzle} disabled={phase !== 'active'} onSubmit={handleSubmit} />
       {onDailySolved ? null : (
-        <SubmissionModal
+        <ArchiveCompletionModal
           open={modalOpen && phase === 'submitted'}
           result={result}
-          selectedAnswer={selectedAnswer}
+          puzzleId={puzzle.id}
           onClose={onLeaveResult}
-          onOpenArchive={() => {
-            onLeaveResult()
-            onOpenArchive()
-          }}
         />
       )}
     </section>
@@ -411,24 +407,13 @@ function DailyReadyBoard({ preview, onStart }: { preview: DailyPreview; onStart:
       <p className="mt-3 text-sm font-medium text-amber-200">{intro.label}</p>
       <p className="mt-2 text-sm text-slate-300">{intro.text}</p>
       <p className="mt-4 text-sm text-amber-300">Streak: {streak}</p>
-      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-        <button
-          type="button"
-          disabled
-          title="Coming soon"
-          className="cursor-default rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-400"
-        >
-          Leaderboard
-        </button>
-        <button
-          type="button"
-          onClick={onStart}
-          className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
-        >
-          Start today&apos;s puzzle
-        </button>
-      </div>
-      <p className="mt-3 text-xs text-slate-500">Leaderboard coming soon</p>
+      <button
+        type="button"
+        onClick={onStart}
+        className="mt-5 rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
+      >
+        Start today&apos;s puzzle
+      </button>
     </section>
   )
 }
@@ -471,28 +456,39 @@ function PuzzleBody({
 
 function CompletedDailyCard({ onOpenArchive }: { onOpenArchive: () => void }) {
   const { isAuthenticated, openAuthModal } = useAuth()
+  const [boardOpen, setBoardOpen] = useState(false)
 
   return (
     <section className="mx-auto mt-8 w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center">
       <h1 className="text-xl font-semibold text-white">Daily Challenge Completed</h1>
       <p className="mt-2 text-sm text-slate-300">You already finished today's puzzle.</p>
-      {isAuthenticated ? (
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
         <button
           type="button"
-          onClick={onOpenArchive}
-          className="mt-5 rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
+          onClick={() => setBoardOpen(true)}
+          className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
         >
-          Archive
+          View Today&apos;s Leaderboard
         </button>
-      ) : (
-        <button
-          type="button"
-          onClick={openAuthModal}
-          className="mt-5 rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
-        >
-          Sign Up to Access Archive & Save Streaks
-        </button>
-      )}
+        {isAuthenticated ? (
+          <button
+            type="button"
+            onClick={onOpenArchive}
+            className="rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:border-amber-400"
+          >
+            Archive
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={openAuthModal}
+            className="rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-100 hover:border-amber-400"
+          >
+            Sign Up to Access Archive & Save Streaks
+          </button>
+        )}
+      </div>
+      <LeaderboardModal open={boardOpen} onClose={() => setBoardOpen(false)} />
     </section>
   )
 }

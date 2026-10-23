@@ -5,7 +5,10 @@ import { submitPuzzle } from '@/api/puzzles.ts'
 import { migrateGuestDataToAccount } from '@/services/migration.ts'
 import {
   bumpStreakIfDaily,
+  ensureArchiveStarted,
+  getDailyStartedAt,
   listGuestCompletions,
+  markDailyStarted,
   recordGuestCompletion,
   utcToday,
   visibleGuestStreak,
@@ -72,5 +75,56 @@ describe('guest migration', () => {
 
     expect(failures).toEqual(['daily-1'])
     expect(listGuestCompletions().map((entry) => entry.puzzleId)).toEqual(['daily-1'])
+  })
+})
+
+describe('start clocks', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('keeps an archive start on one account and starts fresh on another', () => {
+    const started = ensureArchiveStarted('puzzle-1', 'ada@example.com')
+    const book = JSON.parse(localStorage.getItem('archive_started_at') ?? '{}') as {
+      [scope: string]: { [puzzleId: string]: number }
+    }
+    book['ada@example.com']['puzzle-1'] = started - 30 * 60 * 1000
+    localStorage.setItem('archive_started_at', JSON.stringify(book))
+
+    expect(ensureArchiveStarted('puzzle-1', 'ada@example.com')).toBe(started - 30 * 60 * 1000)
+    const other = ensureArchiveStarted('puzzle-1', 'bea@example.com')
+    expect(other).toBeGreaterThan(started - 5 * 1000)
+  })
+
+  it('resets an archive start that is older than an hour', () => {
+    ensureArchiveStarted('puzzle-1', 'ada@example.com')
+    const book = JSON.parse(localStorage.getItem('archive_started_at') ?? '{}') as {
+      [scope: string]: { [puzzleId: string]: number }
+    }
+    book['ada@example.com']['puzzle-1'] = Date.now() - 2 * 60 * 60 * 1000
+    localStorage.setItem('archive_started_at', JSON.stringify(book))
+
+    const reset = ensureArchiveStarted('puzzle-1', 'ada@example.com')
+    expect(reset).toBeGreaterThan(Date.now() - 5 * 1000)
+  })
+
+  it('ignores a start saved before accounts were separated', () => {
+    localStorage.setItem(
+      'archive_started_at',
+      JSON.stringify({ 'puzzle-1': Date.now() - 60 * 1000 }),
+    )
+    const started = ensureArchiveStarted('puzzle-1', 'ada@example.com')
+    expect(started).toBeGreaterThan(Date.now() - 5 * 1000)
+  })
+
+  it('drops a guest daily start after an hour away', () => {
+    markDailyStarted('puzzle-1')
+    const book = JSON.parse(localStorage.getItem('daily_started_at') ?? '{}') as {
+      guest: { [puzzleId: string]: number }
+    }
+    book.guest['puzzle-1'] = Date.now() - 2 * 60 * 60 * 1000
+    localStorage.setItem('daily_started_at', JSON.stringify(book))
+
+    expect(getDailyStartedAt('puzzle-1')).toBeNull()
   })
 })
