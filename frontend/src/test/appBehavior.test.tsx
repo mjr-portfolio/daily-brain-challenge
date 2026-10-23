@@ -26,6 +26,14 @@ vi.mock('@/api/puzzles.ts', () => ({
   startDaily: vi.fn(),
   getPuzzleArchive: vi.fn(),
   submitPuzzle: vi.fn(),
+  getDailyLeaderboard: vi.fn().mockResolvedValue({
+    puzzle_id: '11111111-1111-1111-1111-111111111111',
+    assigned_date: '2026-10-22',
+    limit: 25,
+    entries: [],
+    viewer: null,
+  }),
+  getArchiveBenchmark: vi.fn(),
 }))
 
 const puzzleId = '11111111-1111-1111-1111-111111111111'
@@ -83,6 +91,8 @@ describe('daily clock', () => {
     renderWithProviders(<App />)
 
     expect(await screen.findByRole('button', { name: /start today's puzzle/i })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /leaderboard/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/leaderboard coming soon/i)).not.toBeInTheDocument()
     expect(startDaily).not.toHaveBeenCalled()
     expect(localStorage.getItem('daily_started_at')).toBeNull()
     expect(screen.queryByText(/^\d{2}:\d{2}$/)).not.toBeInTheDocument()
@@ -141,6 +151,27 @@ describe('archive route', () => {
     expect(await screen.findByText('Unplayed')).toBeVisible()
     expect(localStorage.getItem('archive_started_at')).toBeNull()
     expect(screen.getByRole('button', { name: /start today's puzzle/i })).toBeVisible()
+  })
+})
+
+describe('completed daily card', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem('auth_token', 'token')
+    localStorage.setItem('auth_email', 'player@example.com')
+    vi.mocked(getAccount).mockResolvedValue({
+      email: 'player@example.com',
+      streak: 2,
+      total_score: 180,
+    })
+    vi.mocked(getDaily).mockResolvedValue({ ...preview(), is_completed: true })
+  })
+
+  it('offers today\'s leaderboard after the daily is finished', async () => {
+    renderWithProviders(<App />)
+
+    expect(await screen.findByRole('button', { name: /view today's leaderboard/i })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /start today's puzzle/i })).not.toBeInTheDocument()
   })
 })
 

@@ -106,9 +106,14 @@ async def create_puzzle(
     solution: object = 9,
     explanation: str = "Each row increases by 1, so the blank is 9.",
     content: dict | None = None,
+    puzzle_type: PuzzleType = PuzzleType.PATTERN,
 ) -> Puzzle:
+    if assigned is not None:
+        existing = await session.scalar(select(Puzzle).where(Puzzle.assigned_date == assigned))
+        if existing is not None:
+            await cleanup_puzzle(session, existing.id)
     puzzle = Puzzle(
-        puzzle_type=PuzzleType.PATTERN,
+        puzzle_type=puzzle_type,
         assigned_date=assigned,
         content=content
         or {

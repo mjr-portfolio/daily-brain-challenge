@@ -59,5 +59,6 @@ async def adopt_streak(payload: StreakAdopt, db: DbSession, user: CurrentUser) -
     if user.streak_date is None and payload.last_date is not None:
         user.streak_count = display_streak(payload.count, payload.last_date, today)
         user.streak_date = payload.last_date
+        user.best_streak = max(user.best_streak, user.streak_count)
         await db.commit()
     return await _account(db, user, today)

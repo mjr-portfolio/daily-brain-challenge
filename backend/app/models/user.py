@@ -20,6 +20,9 @@ class User(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
         Integer, nullable=False, default=0, server_default="0"
     )
     streak_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    best_streak: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     completions: Mapped[list[UserCompletion]] = relationship(
         back_populates="user",
