@@ -46,6 +46,7 @@ async def test_adopt_streak_keeps_an_existing_account_streak(client, session) ->
         headers=headers,
     )
     assert first.status_code == 200
+    assert first.json()["applied"] is True
     assert first.json()["streak"] == 4
 
     second = await client.post(
@@ -54,6 +55,7 @@ async def test_adopt_streak_keeps_an_existing_account_streak(client, session) ->
         headers=headers,
     )
     assert second.status_code == 200
+    assert second.json()["applied"] is False
     assert second.json()["streak"] == 4
 
     account = await client.get("/api/auth/me", headers=headers)

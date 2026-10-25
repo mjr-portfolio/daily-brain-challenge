@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.origin import TrustedOriginMiddleware
 from app.services.queue_manager import replenish_queue
 
 logger = logging.getLogger(__name__)
@@ -53,13 +54,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+# Added first so CORS stays outermost and can stamp headers onto a 403.
+app.add_middleware(TrustedOriginMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-    ],
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(api_router)

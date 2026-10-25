@@ -9,18 +9,19 @@ import type { ArchivePuzzleItem } from '@/types/puzzle.ts'
 
 export default function App() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, sessionPending } = useAuth()
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [playback, setPlayback] = useState<ArchivePuzzleItem | null>(null)
   const [homeKey, setHomeKey] = useState(0)
 
   const openArchive = useCallback(() => {
+    if (sessionPending) return
     if (!isAuthenticated) {
       void navigate('/archive')
       return
     }
     setArchiveOpen(true)
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, sessionPending])
 
   function returnHome() {
     setPlayback(null)
@@ -91,13 +92,15 @@ function ArchiveRoute({
   onLeaveResult: () => void
 }) {
   const navigate = useNavigate()
-  const { isAuthenticated, openAuthModal } = useAuth()
+  const { isAuthenticated, sessionPending, openAuthModal } = useAuth()
 
   useEffect(() => {
-    if (!isAuthenticated || playback) return
+    if (sessionPending || !isAuthenticated || playback) return
     onOpenArchive()
     void navigate('/', { replace: true })
-  }, [isAuthenticated, playback, navigate, onOpenArchive])
+  }, [isAuthenticated, sessionPending, playback, navigate, onOpenArchive])
+
+  if (sessionPending) return null
 
   if (!isAuthenticated) {
     return (

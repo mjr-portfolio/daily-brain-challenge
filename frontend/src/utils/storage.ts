@@ -1,7 +1,9 @@
 import type { AnswerType } from '@/types/submit.ts'
 
 const TOKEN_KEY = 'auth_token'
+const REFRESH_KEY = 'auth_refresh_token'
 const EMAIL_KEY = 'auth_email'
+export const SESSION_CLEARED_EVENT = 'auth-session-cleared'
 const STREAK_KEY = 'guest_streak'
 const STREAK_DATE_KEY = 'guest_streak_date'
 const COMPLETIONS_KEY = 'guest_completions'
@@ -29,25 +31,18 @@ export function utcToday(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-export function getEmail(): string | null {
-  return localStorage.getItem(EMAIL_KEY)
-}
-
-export function setEmail(email: string): void {
-  localStorage.setItem(EMAIL_KEY, email)
-}
-
 export function clearAuth(): void {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REFRESH_KEY)
   localStorage.removeItem(EMAIL_KEY)
+}
+
+export function clearGuestProgress(): void {
+  localStorage.removeItem(STREAK_KEY)
+  localStorage.removeItem(STREAK_DATE_KEY)
+  localStorage.removeItem(COMPLETIONS_KEY)
+  localStorage.removeItem(PLAYED_DAILY_DATES_KEY)
+  notify()
 }
 
 export function getStreak(): number {

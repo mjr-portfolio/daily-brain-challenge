@@ -56,8 +56,11 @@ describe('guest migration', () => {
     localStorage.clear()
     vi.mocked(adoptGuestStreak).mockResolvedValue({
       email: 'player@example.com',
+      display_name: null,
+      preferences: { theme: 'dark' },
       streak: 1,
       total_score: 0,
+      applied: true,
     })
   })
 
@@ -75,6 +78,34 @@ describe('guest migration', () => {
 
     expect(failures).toEqual(['daily-1'])
     expect(listGuestCompletions().map((entry) => entry.puzzleId)).toEqual(['daily-1'])
+  })
+
+  it('keeps the browser streak when the account already has one', async () => {
+    localStorage.setItem('guest_streak', '6')
+    localStorage.setItem('guest_streak_date', utcToday())
+    vi.mocked(adoptGuestStreak).mockResolvedValue({
+      email: 'player@example.com',
+      display_name: null,
+      preferences: { theme: 'dark' },
+      streak: 2,
+      total_score: 10,
+      applied: false,
+    })
+
+    await migrateGuestDataToAccount()
+
+    expect(localStorage.getItem('guest_streak')).toBe('6')
+    expect(localStorage.getItem('guest_streak_date')).toBe(utcToday())
+  })
+
+  it('clears the browser streak only after the account takes it', async () => {
+    localStorage.setItem('guest_streak', '3')
+    localStorage.setItem('guest_streak_date', utcToday())
+
+    await migrateGuestDataToAccount()
+
+    expect(localStorage.getItem('guest_streak')).toBeNull()
+    expect(localStorage.getItem('guest_streak_date')).toBeNull()
   })
 })
 

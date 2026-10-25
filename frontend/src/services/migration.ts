@@ -13,8 +13,8 @@ import {
 export async function migrateGuestDataToAccount(): Promise<string[]> {
   const record = getGuestStreakRecord()
   try {
-    await adoptGuestStreak(record.count, record.lastDate)
-    clearGuestStreak()
+    const adopted = await adoptGuestStreak(record.count, record.lastDate)
+    if (adopted.applied) clearGuestStreak()
   } catch {
     // Leave the browser streak in place so a later sign-in can try again.
   }

@@ -288,12 +288,14 @@ function PuzzleSession({
       rememberDailyPlay(puzzle.assigned_date)
       setResult(response)
       if (response.streak != null && email) {
-        queryClient.setQueryData<AccountRead>(['streak', email], (current) => ({
+        queryClient.setQueryData<AccountRead>(['account'], (current) => ({
           email,
+          display_name: current?.display_name ?? null,
+          preferences: current?.preferences ?? { theme: 'dark' },
           streak: response.streak ?? 0,
           total_score: (current?.total_score ?? 0) + (response.score ?? 0),
         }))
-        void queryClient.invalidateQueries({ queryKey: ['streak', email] })
+        void queryClient.invalidateQueries({ queryKey: ['account'] })
         void queryClient.invalidateQueries({ queryKey: userStatsKey(email) })
       }
       if (onDailySolved) onDailySolved(response, answer)

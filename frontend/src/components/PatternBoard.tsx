@@ -108,6 +108,11 @@ function ShapeGlyph({ item, size = 22 }: { item: ShapeItem; size?: number }) {
   )
 }
 
+function isBlankCell(cell: PatternChoice | null): boolean {
+  if (cell == null) return true
+  return typeof cell === 'string' && ['null', 'none'].includes(cell.trim().toLowerCase())
+}
+
 function CellFace({ value, size = 22 }: { value: PatternChoice; size?: number }) {
   if (typeof value === 'object') return <ShapeGlyph item={value} size={size} />
   return <>{String(value)}</>
@@ -141,8 +146,8 @@ export function PatternBoard({ content, disabled, onSubmit }: PatternBoardProps)
       >
         {content.grid.flatMap((row, rowIndex) =>
           row.map((cell, colIndex) => {
-            const filled = cell == null ? selected : cell
-            const isBlank = cell == null
+            const isBlank = isBlankCell(cell)
+            const filled = isBlank ? selected : cell
             return (
               <div
                 key={`${rowIndex}-${colIndex}`}
