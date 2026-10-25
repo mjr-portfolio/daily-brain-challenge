@@ -36,12 +36,30 @@ class ShapeItem(BaseModel):
 
 
 PatternElement = str | ShapeItem
+BLANK_CELL_WORDS = frozenset({"null", "none"})
+
+
+def coerce_pattern_cell(value: object) -> object:
+    """Treat the words null and none as the empty cell, including on puzzles already stored."""
+    if isinstance(value, str) and value.strip().casefold() in BLANK_CELL_WORDS:
+        return None
+    return value
 
 
 class PatternContent(BaseModel):
     grid: list[list[str | int | ShapeItem | None]]
     prompt: str
     choices: list[str | int | ShapeItem] | None = None
+
+    @field_validator("grid", mode="before")
+    @classmethod
+    def blank_words(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [
+            [coerce_pattern_cell(cell) for cell in row] if isinstance(row, list) else row
+            for row in value
+        ]
 
 
 class AnagramContent(BaseModel):

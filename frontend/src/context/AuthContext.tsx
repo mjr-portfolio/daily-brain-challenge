@@ -1,15 +1,20 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { requestToken } from '@/api/auth.ts'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  getAccount,
+  loginAccount,
+  logoutAccount,
+  registerAccount,
+  type AccountRead,
+  type ThemePreference,
+} from '@/api/auth.ts'
+import { deleteMyAccount } from '@/api/users.ts'
 import { migrateGuestDataToAccount } from '@/services/migration.ts'
 import {
+  SESSION_CLEARED_EVENT,
   clearAuth,
   clearGuestCompletions,
-  getEmail,
-  getToken,
   listGuestCompletions,
   markDailyPlayedLocally,
-  setEmail,
-  setToken,
   utcToday,
 } from '@/utils/storage.ts'
 import {
@@ -17,16 +22,24 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 
 export type AuthContextValue = {
-  token: string | null
   email: string | null
+  displayName: string | null
+  streak: number
+  totalScore: number
   isAuthenticated: boolean
-  login: (email: string) => Promise<void>
-  logout: () => void
+  sessionPending: boolean
+  login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, displayName?: string) => Promise<void>
+  logout: () => Promise<void>
+  loggingOut: boolean
+  deleteAccount: (password: string) => Promise<void>
+  updateAccount: (account: AccountRead) => void
   authModalOpen: boolean
   openAuthModal: () => void
   closeAuthModal: () => void
@@ -36,53 +49,127 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export { AuthContext }
 
+function applyTheme(theme: ThemePreference): void {
+  document.documentElement.dataset.theme = theme
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
-  const [token, setTokenState] = useState<string | null>(() => getToken())
-  const [email, setEmailState] = useState<string | null>(() => getEmail())
   const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const migratedFor = useRef<string | null>(null)
+  const account = useQuery({
+    queryKey: ['account'],
+    queryFn: getAccount,
+    retry: false,
+  })
 
   useEffect(() => {
-    if (!getToken()) return
+    clearAuth()
+  }, [])
+
+  useEffect(() => {
+    const current = account.data?.email ?? null
+    if (!current) {
+      migratedFor.current = null
+      return
+    }
+    if (migratedFor.current === current) return
+    migratedFor.current = current
     keepTodayLocked()
     void migrateGuestDataToAccount().finally(() => {
-      queryClient.invalidateQueries({ queryKey: ['streak'] })
+      void queryClient.invalidateQueries({ queryKey: ['account'] })
     })
+  }, [account.data, queryClient])
+
+  useEffect(() => {
+    applyTheme(account.data?.preferences.theme ?? 'dark')
+  }, [account.data?.preferences.theme])
+
+  useEffect(() => {
+    function onCleared() {
+      queryClient.setQueryData(['account'], null)
+      applyTheme('dark')
+      queryClient.removeQueries({ queryKey: ['puzzle'] })
+    }
+    window.addEventListener(SESSION_CLEARED_EVENT, onCleared)
+    return () => window.removeEventListener(SESSION_CLEARED_EVENT, onCleared)
   }, [queryClient])
 
-  const login = useCallback(async (nextEmail: string) => {
-    const response = await requestToken(nextEmail)
-    setToken(response.access_token)
-    setEmail(nextEmail)
-    setTokenState(response.access_token)
-    setEmailState(nextEmail)
-    await migrateGuestDataToAccount()
+  const rememberAccount = useCallback((next: AccountRead) => {
+    queryClient.setQueryData(['account'], next)
     queryClient.removeQueries({ queryKey: ['puzzle'] })
-    queryClient.removeQueries({ queryKey: ['streak'] })
+    applyTheme(next.preferences.theme)
   }, [queryClient])
 
-  const logout = useCallback(() => {
+  const login = useCallback(async (nextEmail: string, password: string) => {
+    rememberAccount(await loginAccount(nextEmail, password))
+  }, [rememberAccount])
+
+  const register = useCallback(async (nextEmail: string, password: string, displayName?: string) => {
+    rememberAccount(await registerAccount(nextEmail, password, displayName))
+  }, [rememberAccount])
+
+  const forgetLocalSession = useCallback(() => {
     keepTodayLocked()
     clearAuth()
     clearGuestCompletions()
-    setTokenState(null)
-    setEmailState(null)
+    queryClient.setQueryData(['account'], null)
+    applyTheme('dark')
     queryClient.removeQueries({ queryKey: ['puzzle'] })
-    queryClient.removeQueries({ queryKey: ['streak'] })
+  }, [queryClient])
+
+  const logout = useCallback(async () => {
+    setLoggingOut(true)
+    try {
+      await logoutAccount()
+    } catch {
+      // Drop the browser session even when the cookie is already gone.
+    } finally {
+      forgetLocalSession()
+      setLoggingOut(false)
+    }
+  }, [forgetLocalSession])
+
+  const deleteAccount = useCallback(async (password: string) => {
+    await deleteMyAccount(password)
+    forgetLocalSession()
+  }, [forgetLocalSession])
+
+  const updateAccount = useCallback((next: AccountRead) => {
+    queryClient.setQueryData(['account'], next)
+    applyTheme(next.preferences.theme)
   }, [queryClient])
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      token,
-      email,
-      isAuthenticated: Boolean(token),
+      email: account.data?.email ?? null,
+      displayName: account.data?.display_name ?? null,
+      streak: account.data?.streak ?? 0,
+      totalScore: account.data?.total_score ?? 0,
+      isAuthenticated: account.data != null,
+      sessionPending: account.isPending,
       login,
+      register,
       logout,
+      loggingOut,
+      deleteAccount,
+      updateAccount,
       authModalOpen,
       openAuthModal: () => setAuthModalOpen(true),
       closeAuthModal: () => setAuthModalOpen(false),
     }),
-    [token, email, login, logout, authModalOpen],
+    [
+      account.data,
+      account.isPending,
+      login,
+      register,
+      logout,
+      loggingOut,
+      deleteAccount,
+      updateAccount,
+      authModalOpen,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
@@ -94,4 +181,3 @@ function keepTodayLocked(): void {
     markDailyPlayedLocally(today)
   }
 }
-

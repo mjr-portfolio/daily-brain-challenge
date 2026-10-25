@@ -20,7 +20,13 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models.puzzle import PuzzleType
-from app.schemas.puzzle import AnagramContent, NewsQuizContent, PatternContent, ShapeItem
+from app.schemas.puzzle import (
+    AnagramContent,
+    NewsQuizContent,
+    PatternContent,
+    ShapeItem,
+    coerce_pattern_cell,
+)
 from app.services.hashing import hash_solution
 
 PatternKind = Literal["numerical", "unicode", "shape"]
@@ -255,7 +261,7 @@ def _generate_checked[T: BaseModel](
 
 ANAGRAM_SYSTEM = """You are a world-class word puzzle master for top daily newspapers like The New York Times.
 
-Before you fill the JSON, draft a candidate word and a scrambled version internally, then rate difficulty from 1 to 10. Emit the puzzle only when that score is strictly between 5 and 7 (accessible but challenging). Do not include the draft, the score, or any reasoning in the JSON.
+Before you fill the JSON, draft a candidate word and a scrambled version internally, then rate difficulty from 1 to 10. Emit the puzzle only when that score is 5, 6, or 7. Do not include the draft, the score, or any reasoning in the JSON.
 
 Constraints:
 - solution is one English word of 6 to 8 letters, familiar to a general audience, and non-obvious once scrambled.
@@ -268,7 +274,7 @@ Constraints:
 
 PATTERN_SYSTEM = """You are a senior logic and intelligence puzzle writer for Mensa and GCHQ.
 
-Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Target difficulty 6/10. Do not include that reasoning in the JSON.
+Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Rate it from 1 to 10 and emit it only when that score is 5, 6, or 7. Do not include that reasoning in the JSON.
 
 Shared rules:
 - grid is 3 rows of 3 cells with exactly one null blank.
@@ -278,7 +284,7 @@ Shared rules:
 
 SHAPE_SYSTEM = """You are a senior logic and intelligence puzzle writer for Mensa and GCHQ.
 
-Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Target difficulty 6/10. Do not include that reasoning in the JSON.
+Before you fill the JSON, confirm internally that the transformation rule is fully deterministic and unambiguous, and that solving it takes at least two logical steps. Rate it from 1 to 10 and emit it only when that score is 5, 6, or 7. Do not include that reasoning in the JSON.
 
 Shared rules for shape puzzles:
 - grid is 4 rows of 4 cells with exactly one null blank.
@@ -288,7 +294,7 @@ Shared rules for shape puzzles:
 
 NEWS_SYSTEM = """You are a lead editor for a premier weekly global current events quiz.
 
-Before you fill the JSON, draft the question and three distractors internally and aim for difficulty 6/10: challenging yet accessible. Do not include that draft in the JSON.
+Before you fill the JSON, draft the question and three distractors internally, then rate difficulty from 1 to 10. Emit the puzzle only when that score is 5, 6, or 7. Do not include that draft in the JSON.
 
 Constraints:
 - One multiple-choice question on significant science, technology, global culture, or major news.
@@ -308,7 +314,8 @@ _PATTERN_PROMPTS: dict[PatternKind, str] = {
         "Create one original multi-step numerical progression on a 3x3 grid. "
         "Use JSON integers only. The rule must need at least two steps, such as "
         "alternating operations (+2 then ×3) or a Fibonacci-style offset. "
-        "Do not use a single constant add or multiply across the whole grid."
+        "Do not use a single constant add or multiply along any row or column. "
+        "A grid such as 2 4 6 / 3 6 9 / 4 8 12 is rejected."
     ),
     "unicode": (
         "Create one original Unicode symbol grid transformation. "
@@ -372,7 +379,85 @@ def stored_pattern_solution(solution: int | str | ShapeItem) -> object:
     return solution
 
 
+def _arithmetic_blank(values: list[int | None]) -> int | None:
+    known = [(index, value) for index, value in enumerate(values) if value is not None]
+    blanks = [index for index, value in enumerate(values) if value is None]
+    if len(blanks) != 1 or len(known) < 2:
+        return None
+    origin, origin_value = known[0]
+    span = known[1][0] - origin
+    if span == 0 or (known[1][1] - origin_value) % span != 0:
+        return None
+    step = (known[1][1] - origin_value) // span
+    for index, value in known:
+        if value != origin_value + step * (index - origin):
+            return None
+    return origin_value + step * (blanks[0] - origin)
+
+
+def _integer_root(value: int, power: int) -> int | None:
+    if value < 0 or power < 1:
+        return None
+    root = round(value ** (1 / power))
+    if root**power == value:
+        return int(root)
+    return None
+
+
+def _geometric_blank(values: list[int | None]) -> int | None:
+    known = [(index, value) for index, value in enumerate(values) if value is not None]
+    blanks = [index for index, value in enumerate(values) if value is None]
+    if len(blanks) != 1 or len(known) < 2 or any(value == 0 for _, value in known):
+        return None
+    origin, origin_value = known[0]
+    span = known[1][0] - origin
+    if span <= 0 or known[1][1] % origin_value != 0:
+        return None
+    ratio = _integer_root(known[1][1] // origin_value, span)
+    if ratio is None:
+        return None
+    for index, value in known:
+        if value != origin_value * ratio ** (index - origin):
+            return None
+    return origin_value * ratio ** (blanks[0] - origin)
+
+
+def _reject_one_step_numbers(raw: GeneratedPattern) -> None:
+    if not isinstance(raw.solution, int):
+        return
+    columns = list(zip(*raw.grid, strict=True))
+    for line in (*raw.grid, *columns):
+        numbers: list[int | None] = []
+        for cell in line:
+            if cell is None:
+                numbers.append(None)
+            elif isinstance(cell, int) and not isinstance(cell, bool):
+                numbers.append(cell)
+            else:
+                return
+        for predicted in (_arithmetic_blank(numbers), _geometric_blank(numbers)):
+            if predicted is not None and predicted == raw.solution:
+                raise GenerationError(
+                    "Numerical pattern is solved by one constant add or multiply"
+                )
+
+
+def _reject_repeated_symbol(raw: GeneratedPattern) -> None:
+    if not isinstance(raw.solution, str):
+        return
+    filled = [cell for row in raw.grid for cell in row if isinstance(cell, str)]
+    if len(filled) >= 2 and len(set(filled)) < 3:
+        raise GenerationError("Unicode pattern needs at least three distinct symbols")
+    columns = list(zip(*raw.grid, strict=True))
+    for line in (*raw.grid, *columns):
+        symbols = [cell for cell in line if isinstance(cell, str)]
+        blanks = sum(cell is None for cell in line)
+        if blanks == 1 and len(symbols) >= 2 and len(set(symbols)) == 1 and symbols[0] == raw.solution:
+            raise GenerationError("Unicode pattern is solved by repeating one symbol")
+
+
 def _validate_pattern(raw: GeneratedPattern, kind: PatternKind) -> None:
+    raw.grid = [[coerce_pattern_cell(cell) for cell in row] for row in raw.grid]
     size = 4 if kind == "shape" else 3
     if len(raw.grid) != size or any(len(row) != size for row in raw.grid):
         raise GenerationError(f"Pattern grid must be {size}x{size}")
@@ -390,7 +475,11 @@ def _validate_pattern(raw: GeneratedPattern, kind: PatternKind) -> None:
             raise GenerationError(f"Pattern value does not match {kind}")
     if raw.solution not in raw.choices:
         raise GenerationError("Pattern solution must appear in choices")
-    if kind == "shape":
+    if kind == "numerical":
+        _reject_one_step_numbers(raw)
+    elif kind == "unicode":
+        _reject_repeated_symbol(raw)
+    elif kind == "shape":
         _validate_shape_rules(raw)
 
 
@@ -652,8 +741,104 @@ def _validate_news_quiz(raw: GeneratedNewsQuiz) -> None:
             )
 
 
+# Very common 6–8 letter words. A scrambled form of these is still obvious.
+_EASY_ANAGRAM_WORDS = frozenset(
+    {
+        "people",
+        "little",
+        "before",
+        "should",
+        "number",
+        "system",
+        "public",
+        "around",
+        "another",
+        "because",
+        "through",
+        "between",
+        "without",
+        "something",
+        "nothing",
+        "already",
+        "always",
+        "change",
+        "during",
+        "family",
+        "friend",
+        "school",
+        "second",
+        "water",
+        "world",
+        "country",
+        "problem",
+        "company",
+        "service",
+        "student",
+        "history",
+        "morning",
+        "answer",
+        "letter",
+        "mother",
+        "father",
+        "sister",
+        "brother",
+        "garden",
+        "window",
+        "yellow",
+        "animal",
+        "simple",
+        "really",
+        "please",
+        "person",
+        "things",
+        "thinks",
+        "called",
+        "enough",
+        "almost",
+        "better",
+        "having",
+        "myself",
+        "others",
+        "house",
+        "place",
+        "great",
+        "again",
+        "still",
+        "never",
+        "every",
+        "where",
+        "after",
+        "about",
+        "would",
+        "could",
+        "there",
+        "their",
+        "which",
+        "these",
+        "those",
+        "other",
+        "first",
+        "being",
+        "under",
+        "while",
+        "might",
+        "going",
+        "years",
+        "three",
+        "small",
+        "large",
+        "right",
+        "sound",
+        "found",
+        "house",
+    }
+)
+
+
 def _validate_anagram(raw: GeneratedAnagram) -> None:
     word = raw.solution.strip()
+    if word.casefold() in _EASY_ANAGRAM_WORDS:
+        raise GenerationError("Anagram solution is too common")
     scrambled = raw.scrambled_word.strip()
     if not word.isalpha() or not 6 <= len(word) <= 8:
         raise GenerationError("Anagram solution must be a single word of 6 to 8 letters")

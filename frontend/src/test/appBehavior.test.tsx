@@ -12,13 +12,18 @@ import { AuthProvider } from '@/context/AuthContext.tsx'
 import { utcToday } from '@/utils/storage.ts'
 
 vi.mock('@/api/auth.ts', () => ({
-  getAccount: vi.fn(),
+  getAccount: vi.fn().mockRejectedValue(new Error('Not authenticated')),
   adoptGuestStreak: vi.fn().mockResolvedValue({
     email: 'player@example.com',
+    display_name: null,
+    preferences: { theme: 'dark' },
     streak: 2,
     total_score: 180,
+    applied: true,
   }),
-  requestToken: vi.fn(),
+  loginAccount: vi.fn(),
+  registerAccount: vi.fn(),
+  logoutAccount: vi.fn(),
 }))
 
 vi.mock('@/api/puzzles.ts', () => ({
@@ -64,6 +69,7 @@ function renderWithProviders(ui: ReactNode, path = '/') {
 describe('daily clock', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.mocked(getAccount).mockRejectedValue(new Error('Not authenticated'))
     vi.mocked(getDaily).mockResolvedValue(preview())
     vi.mocked(startDaily).mockResolvedValue({
       puzzle: {
@@ -108,10 +114,10 @@ describe('daily clock', () => {
 describe('archive route', () => {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('auth_token', 'token')
-    localStorage.setItem('auth_email', 'player@example.com')
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
+      display_name: null,
+      preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,
     })
@@ -157,10 +163,10 @@ describe('archive route', () => {
 describe('completed daily card', () => {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('auth_token', 'token')
-    localStorage.setItem('auth_email', 'player@example.com')
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
+      display_name: null,
+      preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,
     })
@@ -178,6 +184,7 @@ describe('completed daily card', () => {
 describe('total score', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.mocked(getAccount).mockRejectedValue(new Error('Not authenticated'))
   })
 
   it('shows the total for a signed-in player and hides it from a guest', async () => {
@@ -185,10 +192,10 @@ describe('total score', () => {
     expect(screen.queryByTitle('Total score')).not.toBeInTheDocument()
     unmount()
 
-    localStorage.setItem('auth_token', 'token')
-    localStorage.setItem('auth_email', 'player@example.com')
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
+      display_name: null,
+      preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,
     })
