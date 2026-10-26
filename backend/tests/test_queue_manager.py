@@ -4,12 +4,14 @@ from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.models.puzzle import Puzzle, PuzzleType
 from app.services.generator import GeneratedPuzzle, GenerationError
 from app.services.hashing import hash_solution
 from app.services.queue_manager import (
+    QUEUE_LOCK_KEY,
+    SKIPPED_LOCK_HELD,
     claim_reserve,
     engine_for_date,
     missing_horizon_dates,
@@ -289,3 +291,24 @@ async def test_reserve_failure_still_tries_the_other_slot(session, today_utc) ->
     assert generate.await_count == 2
     assert len(summary["failures"]) == 2
     assert {row["puzzle_type"] for row in summary["failures"]} == {PuzzleType.ANAGRAM.value}
+
+
+@pytest.mark.asyncio
+async def test_replenish_skips_when_advisory_lock_is_held(session, engine) -> None:
+    async with engine.connect() as lock_conn:
+        acquired = await lock_conn.scalar(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": QUEUE_LOCK_KEY},
+        )
+        assert acquired is True
+        try:
+            summary = await replenish_queue(session, target_days=1)
+        finally:
+            await lock_conn.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {"key": QUEUE_LOCK_KEY},
+            )
+
+    assert summary["skipped"] == SKIPPED_LOCK_HELD
+    assert summary["failures"] == []
+    assert summary["created_assigned"] == 0

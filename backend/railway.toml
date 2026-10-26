@@ -1,0 +1,23 @@
+# Railway service root directory: backend
+#
+# New Railway services do not read this file. On the web service, set the same
+# values in the dashboard if Railway ignores it:
+#   pre-deploy command: alembic upgrade head
+#   start command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+#   healthcheck path: /health
+#
+# Cron service: second service, same image and env, no public domain, and do
+# not attach this file (it would start uvicorn and run migrations).
+#   schedule: 10 0 * * *
+#   start command: python -m scripts.run_queue_producer
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+preDeployCommand = "alembic upgrade head"
+startCommand = "sh -c \"uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}\""
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
