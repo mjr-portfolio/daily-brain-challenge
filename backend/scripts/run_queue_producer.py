@@ -21,8 +21,8 @@ if str(BACKEND_ROOT) not in sys.path:
 load_dotenv(BACKEND_ROOT / ".env")
 
 from app.core.config import get_settings  # noqa: E402
-from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.services.queue_manager import replenish_queue  # noqa: E402
+from app.core.database import AsyncSessionLocal, engine  # noqa: E402
+from app.services.queue_manager import SKIPPED_LOCK_HELD, replenish_queue  # noqa: E402
 
 get_settings.cache_clear()
 
@@ -38,16 +38,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def main() -> None:
+def producer_exit_code(summary: dict) -> int:
+    if summary.get("skipped") == SKIPPED_LOCK_HELD:
+        return 0
+    if summary.get("failures"):
+        return 1
+    return 0
+
+
+async def main() -> int:
     args = parse_args()
     if args.target_days < 1:
         raise SystemExit("--target-days must be >= 1")
 
-    async with AsyncSessionLocal() as session:
-        summary = await replenish_queue(session, target_days=args.target_days)
+    try:
+        async with AsyncSessionLocal() as session:
+            summary = await replenish_queue(session, target_days=args.target_days)
+    finally:
+        await engine.dispose()
 
     print(json.dumps(summary, indent=2))
+    return producer_exit_code(summary)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))

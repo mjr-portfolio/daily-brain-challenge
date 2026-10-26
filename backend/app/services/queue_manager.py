@@ -7,8 +7,8 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.models.puzzle import Puzzle, PuzzleType
 from app.services.generator import GeneratedPuzzle, generate_puzzle, stored_puzzle_identity
@@ -26,6 +26,9 @@ FIXED_WEEKDAY_ENGINES: dict[int, PuzzleType] = {
     4: PuzzleType.NEWS_QUIZ,  # Friday
 }
 RESERVE_TARGET_PER_TYPE = 2
+# Session-level lock so a cron run and a manual run cannot fill the same dates.
+QUEUE_LOCK_KEY = 741002026
+SKIPPED_LOCK_HELD = "lock_held"
 
 
 def engine_for_date(d: date) -> PuzzleType:
@@ -116,6 +119,48 @@ async def _generate_in_thread(
     return await asyncio.to_thread(generate_puzzle, puzzle_type, taken)
 
 
+async def _open_lock_connection(session: AsyncSession) -> tuple[AsyncConnection, bool]:
+    """Hold the lock on a connection that survives the per-puzzle commits.
+
+    A session bound to the engine returns its connection to the pool on
+    commit, which would leave the advisory lock on a different connection.
+    """
+    bind = session.bind
+    if isinstance(bind, AsyncEngine):
+        connection = bind.connect()
+        await connection.start()
+        await connection.execution_options(isolation_level="AUTOCOMMIT")
+        return connection, True
+    if isinstance(bind, AsyncConnection):
+        return bind, False
+    raise RuntimeError("Session is not bound to a database")
+
+
+async def _try_acquire_queue_lock(connection: AsyncConnection) -> bool:
+    acquired = await connection.scalar(
+        text("SELECT pg_try_advisory_lock(:key)"),
+        {"key": QUEUE_LOCK_KEY},
+    )
+    return bool(acquired)
+
+
+async def _release_queue_lock(connection: AsyncConnection) -> None:
+    await connection.execute(
+        text("SELECT pg_advisory_unlock(:key)"),
+        {"key": QUEUE_LOCK_KEY},
+    )
+
+
+def _skipped_lock_summary() -> dict[str, Any]:
+    return {
+        "created_assigned": 0,
+        "promoted_reserve": 0,
+        "created_reserve": 0,
+        "failures": [],
+        "skipped": SKIPPED_LOCK_HELD,
+    }
+
+
 async def replenish_queue(
     session: AsyncSession,
     *,
@@ -127,6 +172,28 @@ async def replenish_queue(
     if target_days < 1:
         raise ValueError("target_days must be >= 1")
 
+    lock_connection, owns_connection = await _open_lock_connection(session)
+    try:
+        if not await _try_acquire_queue_lock(lock_connection):
+            logger.info("Queue replenish skipped; advisory lock is held")
+            return _skipped_lock_summary()
+        try:
+            return await _replenish_queue_locked(
+                session, today=today, target_days=target_days
+            )
+        finally:
+            await _release_queue_lock(lock_connection)
+    finally:
+        if owns_connection:
+            await lock_connection.close()
+
+
+async def _replenish_queue_locked(
+    session: AsyncSession,
+    *,
+    today: date,
+    target_days: int,
+) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "created_assigned": 0,
         "promoted_reserve": 0,

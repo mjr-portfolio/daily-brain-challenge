@@ -36,7 +36,9 @@ async def _boot_replenish() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     task: asyncio.Task[None] | None = None
-    if settings.GEMINI_API_KEY:
+    if not settings.is_development:
+        logger.info("Skipping boot queue replenish: production uses the daily cron")
+    elif settings.GEMINI_API_KEY:
         task = asyncio.create_task(_boot_replenish())
         logger.info("Started background queue replenish on boot")
     else:
