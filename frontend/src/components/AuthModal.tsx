@@ -25,7 +25,12 @@ export function AuthModal() {
     try {
       if (mode === 'create') {
         const handle = displayName.trim()
-        await register(normalized, password, handle || undefined)
+        if (!handle) {
+          setError('Display name is required')
+          setPending(false)
+          return
+        }
+        await register(normalized, password, handle)
       } else {
         await login(normalized, password)
       }
@@ -113,13 +118,15 @@ export function AuthModal() {
             <input
               id="display-name"
               type="text"
+              required
+              minLength={2}
               maxLength={32}
               autoComplete="nickname"
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-amber-400"
             />
-            <p className="mt-1 text-xs text-slate-500">Optional. Letters, numbers, and spaces.</p>
+            <p className="mt-1 text-xs text-slate-500">Letters, numbers, and underscores.</p>
           </>
         ) : null}
         {error ? <p className="mt-2 text-sm text-rose-300">{error}</p> : null}

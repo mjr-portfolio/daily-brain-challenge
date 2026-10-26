@@ -7,30 +7,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.user import User
 from app.models.user_completion import UserCompletion
 from app.schemas.leaderboard import LeaderboardEntry, LeaderboardRead
 from app.services.puzzles import get_daily_puzzle
-
-
-def anonymous_name(user_id: UUID) -> str:
-    number = (user_id.int % 9000) + 1000
-    return f"Player #{number}"
-
-
-def label_users(user_ids: list[UUID]) -> dict[UUID, str]:
-    """Stable Player # labels. Collisions inside this set get a short suffix."""
-    groups: dict[str, list[UUID]] = {}
-    for user_id in user_ids:
-        groups.setdefault(anonymous_name(user_id), []).append(user_id)
-
-    labels: dict[UUID, str] = {}
-    for base, members in groups.items():
-        if len(members) == 1:
-            labels[members[0]] = base
-            continue
-        for user_id in members:
-            labels[user_id] = f"{base}-{user_id.hex[-4:]}"
-    return labels
 
 
 async def daily_leaderboard(
@@ -51,13 +31,14 @@ async def daily_leaderboard(
         await session.execute(
             select(
                 UserCompletion.user_id,
+                User.display_name,
                 UserCompletion.score,
                 UserCompletion.time_taken_seconds,
             )
+            .join(User, User.id == UserCompletion.user_id)
             .where(
                 UserCompletion.puzzle_id == puzzle.id,
                 UserCompletion.is_daily_official.is_(True),
-                UserCompletion.user_id.is_not(None),
             )
             .order_by(
                 UserCompletion.score.desc(),
@@ -68,24 +49,22 @@ async def daily_leaderboard(
         )
     ).all()
 
-    ranked: list[tuple[int, UUID, int, int]] = []
+    ranked: list[tuple[int, UUID, str, int, int]] = []
     for index, row in enumerate(rows, start=1):
         if row.user_id is None:
             continue
-        ranked.append((index, row.user_id, int(row.score), int(row.time_taken_seconds)))
+        ranked.append(
+            (index, row.user_id, row.display_name, int(row.score), int(row.time_taken_seconds))
+        )
 
     page = ranked[:limit]
     viewer_row = next((row for row in ranked if row[1] == viewer_id), None)
-    shown_ids = [row[1] for row in page]
-    if viewer_row is not None and viewer_row[1] not in shown_ids:
-        shown_ids.append(viewer_row[1])
-    labels = label_users(shown_ids)
 
-    def entry(row: tuple[int, UUID, int, int], *, is_viewer: bool) -> LeaderboardEntry:
-        rank, user_id, score, seconds = row
+    def entry(row: tuple[int, UUID, str, int, int], *, is_viewer: bool) -> LeaderboardEntry:
+        rank, _user_id, name, score, seconds = row
         return LeaderboardEntry(
             rank=rank,
-            display_name=labels[user_id],
+            display_name=name,
             score=score,
             completion_time_seconds=seconds,
             is_viewer=is_viewer,

@@ -3,7 +3,7 @@ import type { AccountRead, ThemePreference } from '@/api/auth.ts'
 import type { UserStats } from '@/types/stats.ts'
 
 export type ProfileUpdate = {
-  display_name?: string | null
+  display_name?: string
   email?: string
   theme?: ThemePreference
   current_password?: string

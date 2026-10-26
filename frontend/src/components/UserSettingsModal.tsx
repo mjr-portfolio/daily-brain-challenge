@@ -26,7 +26,7 @@ export function UserSettingsModal({ open, onClose }: { open: boolean; onClose: (
   useEffect(() => {
     if (!open || !account.data) return
     setProfileEmail(account.data.email)
-    setDisplayName(account.data.display_name ?? '')
+    setDisplayName(account.data.display_name)
   }, [open, account.data])
 
   if (!open) return null
@@ -54,7 +54,12 @@ export function UserSettingsModal({ open, onClose }: { open: boolean; onClose: (
     const nextEmail = profileEmail.trim().toLowerCase()
     const nextName = displayName.trim()
     const emailChanged = nextEmail !== account.data.email
-    const nameChanged = nextName !== (account.data.display_name ?? '')
+    const nameChanged = nextName !== account.data.display_name
+    if (!nextName) {
+      setError('Display name is required')
+      setNotice(null)
+      return
+    }
     if (!emailChanged && !nameChanged) return
     if (emailChanged && !profilePassword) {
       setError('Enter your current password to change your email')
@@ -63,7 +68,7 @@ export function UserSettingsModal({ open, onClose }: { open: boolean; onClose: (
     }
     void run(async () => {
       const result = await updateMe({
-        ...(nameChanged ? { display_name: nextName || null } : {}),
+        ...(nameChanged ? { display_name: nextName } : {}),
         ...(emailChanged ? { email: nextEmail, current_password: profilePassword } : {}),
       })
       apply(result)
@@ -136,11 +141,14 @@ export function UserSettingsModal({ open, onClose }: { open: boolean; onClose: (
         <input
           id="settings-name"
           type="text"
+          required
+          minLength={2}
           maxLength={32}
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
           className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-amber-400"
         />
+        <p className="mt-1 text-xs text-slate-500">Letters, numbers, and underscores.</p>
         <label className="mt-3 block text-sm text-slate-300" htmlFor="settings-profile-password">
           Current password
         </label>

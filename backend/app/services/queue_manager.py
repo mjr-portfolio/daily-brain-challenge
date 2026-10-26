@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.puzzle import Puzzle, PuzzleType
-from app.services.generator import GenerationError, GeneratedPuzzle, generate_puzzle
+from app.services.generator import GeneratedPuzzle, generate_puzzle, stored_puzzle_identity
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +100,20 @@ def _puzzle_from_generated(
     )
 
 
-async def _generate_in_thread(puzzle_type: PuzzleType) -> GeneratedPuzzle:
-    return await asyncio.to_thread(generate_puzzle, puzzle_type)
+async def _taken_identities(session: AsyncSession, puzzle_type: PuzzleType) -> set[str]:
+    rows = (
+        await session.execute(
+            select(Puzzle.content, Puzzle.solution).where(Puzzle.puzzle_type == puzzle_type)
+        )
+    ).all()
+    return {stored_puzzle_identity(puzzle_type, content, solution) for content, solution in rows}
+
+
+async def _generate_in_thread(
+    puzzle_type: PuzzleType,
+    taken: set[str] | None = None,
+) -> GeneratedPuzzle:
+    return await asyncio.to_thread(generate_puzzle, puzzle_type, taken)
 
 
 async def replenish_queue(
@@ -130,7 +142,10 @@ async def replenish_queue(
         if paced_generate:
             await asyncio.sleep(13)
         try:
-            generated = await _generate_in_thread(desired)
+            generated = await _generate_in_thread(
+                desired,
+                await _taken_identities(session, desired),
+            )
             paced_generate = True
             session.add(_puzzle_from_generated(generated, assigned_date=day))
             await session.commit()
@@ -164,7 +179,10 @@ async def replenish_queue(
             if paced_generate:
                 await asyncio.sleep(13)
             try:
-                generated = await _generate_in_thread(puzzle_type)
+                generated = await _generate_in_thread(
+                    puzzle_type,
+                    await _taken_identities(session, puzzle_type),
+                )
                 paced_generate = True
                 session.add(_puzzle_from_generated(generated, assigned_date=None))
                 await session.commit()
@@ -184,7 +202,5 @@ async def replenish_queue(
                     puzzle_type.value,
                     exc,
                 )
-                if isinstance(exc, GenerationError):
-                    break
 
     return summary

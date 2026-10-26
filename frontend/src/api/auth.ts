@@ -8,7 +8,7 @@ export type Preferences = {
 
 export type AccountRead = {
   email: string
-  display_name: string | null
+  display_name: string
   preferences: Preferences
   streak: number
   total_score: number
@@ -21,14 +21,14 @@ export type StreakAdoptResult = AccountRead & {
 export function registerAccount(
   email: string,
   password: string,
-  displayName?: string,
+  displayName: string,
 ): Promise<AccountRead> {
   return request<AccountRead>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({
       email,
       password,
-      ...(displayName ? { display_name: displayName } : {}),
+      display_name: displayName,
     }),
   })
 }

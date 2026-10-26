@@ -75,7 +75,7 @@ async def test_insert_guest_and_auth_completions(session: AsyncSession) -> None:
         solution=solution,
         explanation="Each row increases by 1, so the blank is 9.",
     )
-    user = User(email="phase1-test@example.com")
+    user = User(email="phase1-test@example.com", display_name="Phase_One")
     session.add_all([puzzle, user])
     await session.flush()
 

@@ -2,18 +2,18 @@ from datetime import date
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.schemas.profile import PreferencesRead, clean_display_name
+from app.schemas.profile import PreferencesRead, require_display_name
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    display_name: str | None = None
+    display_name: str
 
     @field_validator("display_name")
     @classmethod
-    def _display_name(cls, value: str | None) -> str | None:
-        return clean_display_name(value)
+    def _display_name(cls, value: str) -> str:
+        return require_display_name(value)
 
 
 class LoginRequest(BaseModel):
@@ -29,7 +29,7 @@ class TokenResponse(BaseModel):
 
 class AccountRead(BaseModel):
     email: str
-    display_name: str | None = None
+    display_name: str
     preferences: PreferencesRead
     streak: int
     total_score: int
