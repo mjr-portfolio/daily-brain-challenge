@@ -72,7 +72,12 @@ async def update_me(
 
     if "display_name" in payload.model_fields_set:
         name = payload.display_name
-        if name is not None and await display_name_taken(db, name, exclude_user_id=user.id):
+        if name is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Display name is required",
+            )
+        if await display_name_taken(db, name, exclude_user_id=user.id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="That display name is already taken",

@@ -35,7 +35,7 @@ export type AuthContextValue = {
   isAuthenticated: boolean
   sessionPending: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, displayName?: string) => Promise<void>
+  register: (email: string, password: string, displayName: string) => Promise<void>
   logout: () => Promise<void>
   loggingOut: boolean
   deleteAccount: (password: string) => Promise<void>
@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     rememberAccount(await loginAccount(nextEmail, password))
   }, [rememberAccount])
 
-  const register = useCallback(async (nextEmail: string, password: string, displayName?: string) => {
+  const register = useCallback(async (nextEmail: string, password: string, displayName: string) => {
     rememberAccount(await registerAccount(nextEmail, password, displayName))
   }, [rememberAccount])
 

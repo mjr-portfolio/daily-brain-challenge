@@ -18,7 +18,7 @@ class User(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(32), nullable=False)
     preferences: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,

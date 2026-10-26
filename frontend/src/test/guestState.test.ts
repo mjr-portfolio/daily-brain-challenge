@@ -56,7 +56,7 @@ describe('guest migration', () => {
     localStorage.clear()
     vi.mocked(adoptGuestStreak).mockResolvedValue({
       email: 'player@example.com',
-      display_name: null,
+      display_name: 'Player',
       preferences: { theme: 'dark' },
       streak: 1,
       total_score: 0,
@@ -85,7 +85,7 @@ describe('guest migration', () => {
     localStorage.setItem('guest_streak_date', utcToday())
     vi.mocked(adoptGuestStreak).mockResolvedValue({
       email: 'player@example.com',
-      display_name: null,
+      display_name: 'Player',
       preferences: { theme: 'dark' },
       streak: 2,
       total_score: 10,

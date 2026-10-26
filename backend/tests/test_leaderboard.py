@@ -1,10 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 import pytest
 
 from app.models import UserCompletion
-from app.services.leaderboard import anonymous_name, label_users
 from tests.conftest import (
     auth_header,
     cleanup_puzzle,
@@ -15,23 +13,13 @@ from tests.conftest import (
 )
 
 
-def test_anonymous_names_disambiguate_collisions() -> None:
-    first = UUID(int=1000)
-    second = UUID(int=1000 + 9000)
-    assert anonymous_name(first) == anonymous_name(second)
-    labels = label_users([first, second])
-    assert labels[first] != labels[second]
-    assert labels[first].startswith("Player #")
-    assert first.hex[-4:] in labels[first]
-
-
 @pytest.mark.asyncio
 async def test_leaderboard_orders_hides_email_and_ranks_viewer(client, session, today_utc) -> None:
     puzzle = await replace_daily_puzzle(session, today_utc, solution=9)
-    faster = await create_user(session, email="faster-hidden@example.com")
-    viewer = await create_user(session, email="viewer-hidden@example.com")
-    slower = await create_user(session, email="slower-hidden@example.com")
-    unranked = await create_user(session)
+    faster = await create_user(session, email="faster-hidden@example.com", display_name="Faster")
+    viewer = await create_user(session, email="viewer-hidden@example.com", display_name="Viewer")
+    slower = await create_user(session, email="slower-hidden@example.com", display_name="Slower")
+    unranked = await create_user(session, display_name="Unranked")
     base = datetime.now(UTC)
     session.add_all(
         [
@@ -86,7 +74,8 @@ async def test_leaderboard_orders_hides_email_and_ranks_viewer(client, session, 
     payload = guest.text
     assert "faster-hidden@example.com" not in payload
     assert "viewer-hidden@example.com" not in payload
-    assert all(row["display_name"].startswith("Player #") for row in guest_body["entries"])
+    assert [row["display_name"] for row in guest_body["entries"]] == ["Faster", "Slower", "Viewer"]
+    assert all(not row["display_name"].startswith("Player #") for row in guest_body["entries"])
 
     mine = await client.get(
         "/api/puzzles/daily/leaderboard",

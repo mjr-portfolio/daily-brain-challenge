@@ -4,9 +4,12 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getAccount, logoutAccount } from '@/api/auth.ts'
+import { getAccount, logoutAccount, registerAccount } from '@/api/auth.ts'
+import { updateMe } from '@/api/users.ts'
+import { AuthModal } from '@/components/AuthModal.tsx'
 import { Navbar } from '@/components/Navbar.tsx'
 import { AuthProvider } from '@/context/AuthContext.tsx'
+import { useAuth } from '@/hooks/useAuth.ts'
 
 vi.mock('@/api/auth.ts', () => ({
   getAccount: vi.fn().mockRejectedValue(new Error('Not authenticated')),
@@ -29,7 +32,7 @@ vi.mock('@/api/users.ts', () => ({
   deleteMyAccount: vi.fn(),
 }))
 
-function renderNavbar() {
+function renderInAuth(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -40,7 +43,23 @@ function renderNavbar() {
       </QueryClientProvider>
     )
   }
-  return render(<Navbar onOpenArchive={() => undefined} />, { wrapper: Wrapper })
+  return render(node, { wrapper: Wrapper })
+}
+
+function renderNavbar() {
+  return renderInAuth(<Navbar onOpenArchive={() => undefined} />)
+}
+
+function OpenAuth() {
+  const { openAuthModal } = useAuth()
+  return (
+    <>
+      <button type="button" onClick={openAuthModal}>
+        Open auth
+      </button>
+      <AuthModal />
+    </>
+  )
 }
 
 describe('profile menu', () => {
@@ -76,11 +95,13 @@ describe('profile menu', () => {
   })
 
   it('closes the menu and spins the account button until logout finishes', async () => {
-    let finish = () => undefined
+    let finish: () => void = () => undefined
     vi.mocked(logoutAccount).mockImplementation(
       () =>
         new Promise((resolve) => {
-          finish = () => resolve(undefined)
+          finish = () => {
+            resolve(undefined)
+          }
         }),
     )
     const user = userEvent.setup()
@@ -94,5 +115,39 @@ describe('profile menu', () => {
 
     finish()
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeVisible()
+  })
+
+  it('does not save a blank display name', async () => {
+    const user = userEvent.setup()
+    renderNavbar()
+
+    await user.click(await screen.findByRole('button', { name: 'Account, Ada' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Settings & Preferences' }))
+    const name = await screen.findByLabelText('Display name')
+    expect(name).toBeRequired()
+    await user.clear(name)
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    expect(updateMe).not.toHaveBeenCalled()
+    expect(name).toBeInvalid()
+  })
+})
+
+describe('create account', () => {
+  it('requires a display name', async () => {
+    const user = userEvent.setup()
+    renderInAuth(<OpenAuth />)
+
+    await user.click(screen.getByRole('button', { name: 'Open auth' }))
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    const name = screen.getByLabelText('Display name')
+    expect(name).toBeRequired()
+    expect(screen.getByText(/letters, numbers, and underscores/i)).toBeVisible()
+    expect(screen.queryByText(/optional/i)).not.toBeInTheDocument()
+    const submit = screen.getAllByRole('button', { name: 'Create account' }).at(-1)
+    if (!submit) throw new Error('missing submit')
+    await user.click(submit)
+    expect(registerAccount).not.toHaveBeenCalled()
   })
 })

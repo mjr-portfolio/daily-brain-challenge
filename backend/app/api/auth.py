@@ -50,7 +50,7 @@ async def register(payload: RegisterRequest, response: Response, db: DbSession) 
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists",
         )
-    if payload.display_name and await display_name_taken(
+    if await display_name_taken(
         db,
         payload.display_name,
         exclude_user_id=None if user is None else user.id,
@@ -69,8 +69,7 @@ async def register(payload: RegisterRequest, response: Response, db: DbSession) 
         db.add(user)
     else:
         user.password_hash = hash_password(payload.password)
-        if payload.display_name is not None:
-            user.display_name = payload.display_name
+        user.display_name = payload.display_name
 
     try:
         await db.flush()

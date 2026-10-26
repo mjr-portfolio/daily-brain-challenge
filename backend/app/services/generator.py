@@ -6,6 +6,7 @@ import json
 import random
 import re
 import time
+from pathlib import Path
 
 import httpx
 from google.genai.errors import APIError, ServerError
@@ -328,7 +329,7 @@ _PATTERN_PROMPTS: dict[PatternKind, str] = {
 
 def _shape_task_prompt() -> str:
     return (
-        "Create one original 4x4 shape puzzle at difficulty 6/10. "
+        "Create one original 4x4 shape puzzle at difficulty 5, 6, or 7. "
         "Exactly one cell is null. Count is 1 in every cell and every choice. "
         "Use only triangle (3 sides), square (4), pentagon (5), and hexagon (6). "
         "Colors are red, blue, green, purple, yellow, and orange. Use at least two colors. "
@@ -377,6 +378,47 @@ def stored_pattern_solution(solution: int | str | ShapeItem) -> object:
     if isinstance(solution, ShapeItem):
         return solution.model_dump()
     return solution
+
+
+def _plain_json(value: object) -> object:
+    if isinstance(value, ShapeItem):
+        return value.model_dump()
+    if isinstance(value, list):
+        return [_plain_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _plain_json(item) for key, item in value.items()}
+    return value
+
+
+def _fingerprint(value: object) -> str:
+    return json.dumps(_plain_json(value), sort_keys=True, separators=(",", ":"))
+
+
+def anagram_identity(solution: object) -> str:
+    text = solution if isinstance(solution, str) else ""
+    return text.strip().casefold()
+
+
+def news_identity(question: object) -> str:
+    return _compact(question if isinstance(question, str) else "")
+
+
+def pattern_identity(grid: object, solution: object) -> str:
+    return _fingerprint({"grid": grid, "solution": stored_pattern_solution(solution)})
+
+
+def stored_puzzle_identity(puzzle_type: PuzzleType, content: object, solution: object) -> str:
+    payload = content if isinstance(content, dict) else {}
+    if puzzle_type == PuzzleType.ANAGRAM:
+        return anagram_identity(solution)
+    if puzzle_type == PuzzleType.NEWS_QUIZ:
+        return news_identity(payload.get("question"))
+    return pattern_identity(payload.get("grid"), solution)
+
+
+def _reject_repeat(key: str, taken: set[str] | None) -> None:
+    if taken is not None and key in taken:
+        raise GenerationError("Puzzle repeats one that is already stored")
 
 
 def _arithmetic_blank(values: list[int | None]) -> int | None:
@@ -456,7 +498,11 @@ def _reject_repeated_symbol(raw: GeneratedPattern) -> None:
             raise GenerationError("Unicode pattern is solved by repeating one symbol")
 
 
-def _validate_pattern(raw: GeneratedPattern, kind: PatternKind) -> None:
+def _validate_pattern(
+    raw: GeneratedPattern,
+    kind: PatternKind,
+    taken: set[str] | None = None,
+) -> None:
     raw.grid = [[coerce_pattern_cell(cell) for cell in row] for row in raw.grid]
     size = 4 if kind == "shape" else 3
     if len(raw.grid) != size or any(len(row) != size for row in raw.grid):
@@ -481,6 +527,7 @@ def _validate_pattern(raw: GeneratedPattern, kind: PatternKind) -> None:
         _reject_repeated_symbol(raw)
     elif kind == "shape":
         _validate_shape_rules(raw)
+    _reject_repeat(pattern_identity(raw.grid, raw.solution), taken)
 
 
 _STEM_SUFFIXES = (
@@ -710,7 +757,7 @@ def _compact(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
 
 
-def _validate_news_quiz(raw: GeneratedNewsQuiz) -> None:
+def _validate_news_quiz(raw: GeneratedNewsQuiz, taken: set[str] | None = None) -> None:
     if len(raw.options) != 4 or len(set(raw.options)) != 4:
         raise GenerationError("News quiz must have exactly 4 distinct options")
     if raw.solution not in raw.options:
@@ -739,6 +786,22 @@ def _validate_news_quiz(raw: GeneratedNewsQuiz) -> None:
                 "News quiz question or hint shares a stem with an option: "
                 + ", ".join(shared)
             )
+    _reject_repeat(news_identity(raw.question), taken)
+
+
+def _load_english_anagram_words() -> frozenset[str]:
+    path = Path(__file__).resolve().parents[1] / "data" / "anagram_words.txt"
+    words: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        word = line.strip().casefold()
+        if not word or word.startswith("#"):
+            continue
+        words.add(word)
+    return frozenset(words)
+
+
+# 6–8 letter English words that appear in normal writing. Not a menu of puzzle answers.
+_ENGLISH_ANAGRAM_WORDS = _load_english_anagram_words()
 
 
 # Very common 6–8 letter words. A scrambled form of these is still obvious.
@@ -835,13 +898,15 @@ _EASY_ANAGRAM_WORDS = frozenset(
 )
 
 
-def _validate_anagram(raw: GeneratedAnagram) -> None:
+def _validate_anagram(raw: GeneratedAnagram, taken: set[str] | None = None) -> None:
     word = raw.solution.strip()
     if word.casefold() in _EASY_ANAGRAM_WORDS:
         raise GenerationError("Anagram solution is too common")
     scrambled = raw.scrambled_word.strip()
     if not word.isalpha() or not 6 <= len(word) <= 8:
         raise GenerationError("Anagram solution must be a single word of 6 to 8 letters")
+    if word.casefold() not in _ENGLISH_ANAGRAM_WORDS:
+        raise GenerationError("Anagram solution is not an English word")
     if not scrambled.isalpha():
         raise GenerationError("scrambled_word must contain only letters")
     if Counter(scrambled.casefold()) != Counter(word.casefold()):
@@ -855,6 +920,7 @@ def _validate_anagram(raw: GeneratedAnagram) -> None:
         raise GenerationError(
             f"Anagram hint contains a root of the solution: {echoed}"
         )
+    _reject_repeat(anagram_identity(word), taken)
 
 
 def _hint_echoes_solution(word: str, hint: str) -> str | None:
@@ -883,14 +949,14 @@ def _shape_as_pattern(raw: GeneratedShape) -> GeneratedPattern:
     )
 
 
-def generate_pattern_puzzle() -> GeneratedPuzzle:
+def generate_pattern_puzzle(taken: set[str] | None = None) -> GeneratedPuzzle:
     kind = random.choice(("numerical", "unicode", "shape"))
     if kind == "shape":
         shape = _generate_checked(
             _shape_task_prompt(),
             GeneratedShape,
             system_instruction=SHAPE_SYSTEM,
-            check=lambda payload: _validate_pattern(_shape_as_pattern(payload), "shape"),
+            check=lambda payload: _validate_pattern(_shape_as_pattern(payload), "shape", taken),
         )
         raw = _shape_as_pattern(shape)
     else:
@@ -898,7 +964,7 @@ def generate_pattern_puzzle() -> GeneratedPuzzle:
             _PATTERN_PROMPTS[kind],
             GeneratedPattern,
             system_instruction=PATTERN_SYSTEM,
-            check=lambda payload: _validate_pattern(payload, kind),
+            check=lambda payload: _validate_pattern(payload, kind, taken),
         )
     content = PatternContent(
         grid=raw.grid,
@@ -915,12 +981,12 @@ def generate_pattern_puzzle() -> GeneratedPuzzle:
     )
 
 
-def generate_anagram_puzzle() -> GeneratedPuzzle:
+def generate_anagram_puzzle(taken: set[str] | None = None) -> GeneratedPuzzle:
     raw = _generate_checked(
         "Create one original anagram that follows the system constraints.",
         GeneratedAnagram,
         system_instruction=ANAGRAM_SYSTEM,
-        check=_validate_anagram,
+        check=lambda payload: _validate_anagram(payload, taken),
     )
     content = AnagramContent(
         scrambled_word=raw.scrambled_word,
@@ -936,12 +1002,12 @@ def generate_anagram_puzzle() -> GeneratedPuzzle:
     )
 
 
-def generate_news_quiz_puzzle() -> GeneratedPuzzle:
+def generate_news_quiz_puzzle(taken: set[str] | None = None) -> GeneratedPuzzle:
     raw = _generate_checked(
         "Create one original news-quiz item that follows the system constraints.",
         GeneratedNewsQuiz,
         system_instruction=NEWS_SYSTEM,
-        check=_validate_news_quiz,
+        check=lambda payload: _validate_news_quiz(payload, taken),
     )
     content = NewsQuizContent(
         question=raw.question,
@@ -958,11 +1024,14 @@ def generate_news_quiz_puzzle() -> GeneratedPuzzle:
     )
 
 
-def generate_puzzle(puzzle_type: PuzzleType) -> GeneratedPuzzle:
+def generate_puzzle(
+    puzzle_type: PuzzleType,
+    taken: set[str] | None = None,
+) -> GeneratedPuzzle:
     if puzzle_type == PuzzleType.PATTERN:
-        return generate_pattern_puzzle()
+        return generate_pattern_puzzle(taken)
     if puzzle_type == PuzzleType.ANAGRAM:
-        return generate_anagram_puzzle()
+        return generate_anagram_puzzle(taken)
     if puzzle_type == PuzzleType.NEWS_QUIZ:
-        return generate_news_quiz_puzzle()
+        return generate_news_quiz_puzzle(taken)
     raise GenerationError(f"Unsupported puzzle type: {puzzle_type}")

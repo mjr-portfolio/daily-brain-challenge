@@ -178,7 +178,7 @@ async def test_replenish_creates_assigned_when_generation_succeeds(
         PuzzleType.NEWS_QUIZ: "Google",
     }
 
-    async def fake_generate(puzzle_type: PuzzleType) -> GeneratedPuzzle:
+    async def fake_generate(puzzle_type: PuzzleType, _taken: object = None) -> GeneratedPuzzle:
         return _fake_generated(puzzle_type, solutions[puzzle_type])
 
     with patch(
@@ -262,3 +262,30 @@ async def test_replenish_promotes_reserve_when_generation_fails(
     await session.refresh(reserve)
     assert reserve.assigned_date == day
     await cleanup_puzzle(session, reserve.id)
+
+
+@pytest.mark.asyncio
+async def test_reserve_failure_still_tries_the_other_slot(session, today_utc) -> None:
+    generate = AsyncMock(side_effect=GenerationError("boom"))
+    with patch("app.services.queue_manager.asyncio.sleep", new=AsyncMock()):
+        with patch("app.services.queue_manager._generate_in_thread", new=generate):
+            with patch(
+                "app.services.queue_manager.missing_horizon_dates",
+                new=AsyncMock(return_value=[]),
+            ):
+                with patch(
+                    "app.services.queue_manager.reserve_counts",
+                    new=AsyncMock(
+                        return_value={
+                            PuzzleType.PATTERN: 2,
+                            PuzzleType.ANAGRAM: 0,
+                            PuzzleType.NEWS_QUIZ: 2,
+                        }
+                    ),
+                ):
+                    summary = await replenish_queue(session, today=today_utc, target_days=1)
+
+    assert summary["created_reserve"] == 0
+    assert generate.await_count == 2
+    assert len(summary["failures"]) == 2
+    assert {row["puzzle_type"] for row in summary["failures"]} == {PuzzleType.ANAGRAM.value}

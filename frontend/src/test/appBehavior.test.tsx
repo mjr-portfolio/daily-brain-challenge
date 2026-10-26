@@ -15,7 +15,7 @@ vi.mock('@/api/auth.ts', () => ({
   getAccount: vi.fn().mockRejectedValue(new Error('Not authenticated')),
   adoptGuestStreak: vi.fn().mockResolvedValue({
     email: 'player@example.com',
-    display_name: null,
+    display_name: 'Player',
     preferences: { theme: 'dark' },
     streak: 2,
     total_score: 180,
@@ -116,7 +116,7 @@ describe('archive route', () => {
     localStorage.clear()
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
-      display_name: null,
+      display_name: 'Player',
       preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,
@@ -165,7 +165,7 @@ describe('completed daily card', () => {
     localStorage.clear()
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
-      display_name: null,
+      display_name: 'Player',
       preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,
@@ -194,7 +194,7 @@ describe('total score', () => {
 
     vi.mocked(getAccount).mockResolvedValue({
       email: 'player@example.com',
-      display_name: null,
+      display_name: 'Player',
       preferences: { theme: 'dark' },
       streak: 2,
       total_score: 180,

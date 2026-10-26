@@ -3,13 +3,14 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-_DISPLAY_NAME = re.compile(r"^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$")
+_DISPLAY_NAME = re.compile(r"^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*$")
+_DISPLAY_NAME_ERROR = "Use 2–32 letters, numbers, and underscores"
 
 
 def clean_display_name(value: str | None) -> str | None:
     if value is None:
         return None
-    collapsed = " ".join(value.split())
+    collapsed = value.strip()
     if not collapsed:
         return None
     if (
@@ -17,8 +18,15 @@ def clean_display_name(value: str | None) -> str | None:
         or _DISPLAY_NAME.fullmatch(collapsed) is None
         or not 2 <= len(collapsed) <= 32
     ):
-        raise ValueError("Use 2–32 letters, numbers, and single spaces")
+        raise ValueError(_DISPLAY_NAME_ERROR)
     return collapsed
+
+
+def require_display_name(value: str | None) -> str:
+    cleaned = clean_display_name(value)
+    if cleaned is None:
+        raise ValueError(_DISPLAY_NAME_ERROR)
+    return cleaned
 
 
 class PreferencesRead(BaseModel):
@@ -35,7 +43,9 @@ class UserUpdate(BaseModel):
     @field_validator("display_name")
     @classmethod
     def _display_name(cls, value: str | None) -> str | None:
-        return clean_display_name(value)
+        if value is None:
+            return None
+        return require_display_name(value)
 
 
 class DeleteAccount(BaseModel):

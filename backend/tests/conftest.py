@@ -87,8 +87,17 @@ async def today_utc() -> date:
     return datetime.now(UTC).date()
 
 
-async def create_user(session: AsyncSession, email: str | None = None) -> User:
-    user = User(email=email or f"user-{uuid4().hex}@example.com")
+async def create_user(
+    session: AsyncSession,
+    email: str | None = None,
+    *,
+    display_name: str | None = None,
+) -> User:
+    token = uuid4().hex[:8]
+    user = User(
+        email=email or f"user-{token}@example.com",
+        display_name=display_name or f"User_{token}",
+    )
     session.add(user)
     await session.commit()
     await session.refresh(user)

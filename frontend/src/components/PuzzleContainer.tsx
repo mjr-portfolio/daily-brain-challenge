@@ -290,7 +290,7 @@ function PuzzleSession({
       if (response.streak != null && email) {
         queryClient.setQueryData<AccountRead>(['account'], (current) => ({
           email,
-          display_name: current?.display_name ?? null,
+          display_name: current?.display_name ?? '',
           preferences: current?.preferences ?? { theme: 'dark' },
           streak: response.streak ?? 0,
           total_score: (current?.total_score ?? 0) + (response.score ?? 0),

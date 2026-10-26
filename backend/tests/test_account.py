@@ -35,9 +35,11 @@ def _use_refresh(client, value: str) -> None:
 
 
 async def _register(client, email: str, *, display_name: str | None = None, password: str = PASSWORD):
-    payload: dict[str, str] = {"email": email, "password": password}
-    if display_name is not None:
-        payload["display_name"] = display_name
+    payload: dict[str, str] = {
+        "email": email,
+        "password": password,
+        "display_name": display_name or f"Ada_{uuid4().hex[:6]}",
+    }
     response = await client.post("/api/auth/register", json=payload)
     assert response.status_code == 200
     body = response.json()
@@ -57,13 +59,13 @@ async def _user_id(session, email: str):
 @pytest.mark.asyncio
 async def test_register_login_refresh_and_logout(client, session) -> None:
     email = _email()
-    created = await _register(client, email, display_name="Ada Lovelace")
+    created = await _register(client, email, display_name="Ada_Lovelace")
     assert created["email"] == email
 
     me = await client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["email"] == email
-    assert me.json()["display_name"] == "Ada Lovelace"
+    assert me.json()["display_name"] == "Ada_Lovelace"
     assert me.json()["preferences"]["theme"] == "dark"
 
     wrong = await client.post(
@@ -111,7 +113,7 @@ async def test_register_login_refresh_and_logout(client, session) -> None:
 
     duplicate = await client.post(
         "/api/auth/register",
-        json={"email": email, "password": PASSWORD},
+        json={"email": email, "password": PASSWORD, "display_name": "Ada_Lovelace"},
     )
     assert duplicate.status_code == 409
 
@@ -124,6 +126,28 @@ async def test_register_login_refresh_and_logout(client, session) -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_requires_a_display_name(client) -> None:
+    email = _email()
+    missing = await client.post(
+        "/api/auth/register",
+        json={"email": email, "password": PASSWORD},
+    )
+    assert missing.status_code == 422
+
+    blank = await client.post(
+        "/api/auth/register",
+        json={"email": email, "password": PASSWORD, "display_name": " "},
+    )
+    assert blank.status_code == 422
+
+    spaced = await client.post(
+        "/api/auth/register",
+        json={"email": email, "password": PASSWORD, "display_name": "Ada Lovelace"},
+    )
+    assert spaced.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_claim_sets_a_password_once(client, session) -> None:
     email = _email()
     legacy = await create_user(session, email=email)
@@ -132,12 +156,13 @@ async def test_claim_sets_a_password_once(client, session) -> None:
     denied = await client.post("/api/auth/login", json={"email": email, "password": PASSWORD})
     assert denied.status_code == 401
 
-    claimed = await _register(client, email)
+    claimed = await _register(client, email, display_name="Legacy_Ada")
     assert claimed["email"] == email
+    assert claimed["display_name"] == "Legacy_Ada"
 
     again = await client.post(
         "/api/auth/register",
-        json={"email": email, "password": "password2"},
+        json={"email": email, "password": "password2", "display_name": "Legacy_Ada"},
     )
     assert again.status_code == 409
 
@@ -167,6 +192,10 @@ async def test_profile_updates_validate_password_and_handle(client, session) -> 
     )
     assert invalid.status_code == 422
 
+    cleared = await client.patch("/api/users/me", json={"display_name": None})
+    assert cleared.status_code == 422
+    assert (await client.get("/api/auth/me")).json()["display_name"] == "Ada"
+
     taken = await client.patch(
         "/api/users/me",
         json={"display_name": "bea"},
@@ -175,10 +204,10 @@ async def test_profile_updates_validate_password_and_handle(client, session) -> 
 
     renamed = await client.patch(
         "/api/users/me",
-        json={"display_name": "Ada L"},
+        json={"display_name": "Ada_L"},
     )
     assert renamed.status_code == 200
-    assert renamed.json()["display_name"] == "Ada L"
+    assert renamed.json()["display_name"] == "Ada_L"
     assert "access_token" not in renamed.json()
 
     missing_password = await client.patch(
