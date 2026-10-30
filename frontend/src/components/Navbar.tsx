@@ -16,8 +16,13 @@ export function Navbar({ onOpenArchive }: { onOpenArchive: () => void }) {
   return (
     <header className="border-b border-slate-800 bg-slate-950/80">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3">
-        <Link to="/" className="text-lg font-semibold tracking-tight text-white">
-          Daily Challenge
+        <Link
+          to="/"
+          aria-label="Daily Brain Challenge"
+          className="text-lg font-semibold tracking-tight text-white"
+        >
+          <span className="sm:hidden">DBC</span>
+          <span className="hidden sm:inline">Daily Brain Challenge</span>
         </Link>
         <p className="flex items-center gap-1 text-sm text-amber-300" title="Daily streak">
           <FlameIcon />
