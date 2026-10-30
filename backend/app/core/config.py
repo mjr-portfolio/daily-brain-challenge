@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Comma-separated page origins allowed to call the API with cookies.
     # Production: the exact Vercel URL, for example https://your-project.vercel.app
     CORS_ORIGINS: str = LOCAL_CORS_ORIGINS
-    # Production behind Railway + Vercel: COOKIE_SECURE=true and COOKIE_SAMESITE=none.
+    # Production (Vercel /api rewrite → Railway): COOKIE_SECURE=true, COOKIE_SAMESITE=lax.
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
     GEMINI_API_KEY: str | None = None
