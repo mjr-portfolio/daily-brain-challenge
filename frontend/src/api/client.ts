@@ -1,7 +1,7 @@
 import { SESSION_CLEARED_EVENT, clearAuth } from '@/utils/storage.ts'
 
-// Local dev uses the Vite proxy, so the page and the API share localhost and
-// SameSite=Lax cookies work. Production sets VITE_API_BASE to the Railway URL.
+// Default /api is same-origin: Vite proxies locally, vercel.json proxies in
+// production. Leave VITE_API_BASE unset so Safari can keep auth cookies.
 const configured = import.meta.env.VITE_API_BASE?.trim()
 export const API_BASE = configured ? configured.replace(/\/$/, '') : '/api'
 

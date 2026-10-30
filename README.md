@@ -62,7 +62,7 @@ Answers are never returned from puzzle `GET` endpoints. Correctness is decided o
 - **httpOnly cookies** for access JWT (short-lived) and opaque refresh token (hashed at rest, rotated on refresh).
 - **Argon2** password hashing via `pwdlib`.
 - **Guest → account:** on register/login, the SPA migrates local completions and can adopt a guest streak when the account has none yet.
-- Production cross-origin setup (Vercel page ↔ Railway API): `COOKIE_SECURE=true`, `COOKIE_SAMESITE=none`, and an exact `CORS_ORIGINS` whitelist, plus `TrustedOriginMiddleware` for cookie-bearing writes.
+- Production uses a Vercel `/api` rewrite to Railway so auth cookies stay first-party (`COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`), with `CORS_ORIGINS` and `TrustedOriginMiddleware` as defense in depth.
 
 ---
 
@@ -75,8 +75,8 @@ flowchart LR
   api[RailwayFastAPI]
   cron[RailwayCron]
   pg[(PostgreSQL)]
-  browser --> vercel
-  vercel -->|"HTTPS cookies CORS"| api
+  browser -->|"page + /api cookies"| vercel
+  vercel -->|"rewrite /api"| api
   api --> pg
   cron -->|"run_queue_producer + advisory lock"| pg
 ```
@@ -130,7 +130,7 @@ sequenceDiagram
 
 | Piece | Role |
 | --- | --- |
-| **Vercel** | Static Vite SPA; `VITE_API_BASE` baked at build time |
+| **Vercel** | Static Vite SPA; `vercel.json` rewrites `/api/*` to Railway (leave `VITE_API_BASE` unset) |
 | **Railway web** | FastAPI + uvicorn on `$PORT`; pre-deploy `alembic upgrade head` |
 | **Railway Postgres** | Source of truth for puzzles, users, completions, starts |
 | **Railway cron** | Same image; schedule `10 0 * * *` UTC; start `python -m scripts.run_queue_producer` |
@@ -142,16 +142,20 @@ sequenceDiagram
 - Replenishment takes a **session-level** Postgres advisory lock (`pg_try_advisory_lock`) so overlapping cron/manual runs cannot double-fill the same dates. The lock is held on a dedicated connection for the whole run because the worker commits per puzzle.
 - The producer exits non-zero when `failures` is non-empty so a half-filled night shows up as a failed cron run.
 
-### Cross-site cookie security
+### Cookie security (first-party via Vercel rewrite)
 
-Intended production variables (see [`backend/.env.example`](backend/.env.example)):
+The browser only talks to the Vercel origin. [`frontend/vercel.json`](frontend/vercel.json) proxies `/api/*` to Railway so Safari can keep httpOnly session cookies.
+
+Intended Railway variables (see [`backend/.env.example`](backend/.env.example)):
 
 ```text
 APP_ENV=production
 COOKIE_SECURE=true
-COOKIE_SAMESITE=none
-CORS_ORIGINS=https://YOUR-VERCEL-URL.vercel.app
+COOKIE_SAMESITE=lax
+CORS_ORIGINS=https://the-daily-brain-challenge.vercel.app
 ```
+
+Deploy order: ship the Vercel rewrite with `VITE_API_BASE` removed, confirm login on Safari, then set `COOKIE_SAMESITE=lax` on Railway (keep `none` until that deploy is live if the old cross-origin bundle is still serving).
 
 Railway’s `postgresql://` / `postgres://` `DATABASE_URL` is rewritten to `postgresql+asyncpg://` at settings load. Outside development, the process refuses the local JWT secret, localhost CORS, or `SameSite=None` without `Secure`.
 
@@ -187,7 +191,7 @@ python -m scripts.run_queue_producer
 
 ### Frontend
 
-Leave `VITE_API_BASE` unset locally — Vite proxies `/api` to `http://127.0.0.1:8000`.
+Leave `VITE_API_BASE` unset locally and on Vercel — Vite proxies `/api` to `http://127.0.0.1:8000`, and production uses the Vercel rewrite.
 
 ```bash
 cd frontend
@@ -231,6 +235,7 @@ Coverage areas include verification and scoring, daily/archive submit, guest com
 │   ├── railway.toml         # Web deploy hints (pre-deploy, healthcheck)
 │   └── docker-compose.yml   # Local Postgres 16
 ├── frontend/
+│   ├── vercel.json          # /api rewrite to Railway (first-party cookies)
 │   └── src/                 # React 19 + Vite SPA, boards, modals, tests
 └── docs/
     └── assets/              # Screenshot drops for this README
