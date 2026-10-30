@@ -48,7 +48,7 @@ export function AuthModal() {
   const creating = mode === 'create'
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 px-4 pb-4 pt-20">
       <form
         onSubmit={onSubmit}
         className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
