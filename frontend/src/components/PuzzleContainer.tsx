@@ -224,8 +224,8 @@ function DailyChallenge({
         puzzleType={preview?.puzzle_type ?? 'pattern'}
         assignedDate={preview?.assigned_date ?? null}
         sourceHeadline={
-          session?.puzzle.puzzle_type === 'news_quiz'
-            ? session.puzzle.content.source_headline
+          session != null && isNewsQuizPuzzle(session.puzzle)
+            ? (session.puzzle.content.source_headline ?? null)
             : null
         }
         onClose={() => {
@@ -371,7 +371,7 @@ function PuzzleSession({
           puzzleId={puzzle.id}
           puzzleType={puzzle.puzzle_type}
           sourceHeadline={
-            puzzle.puzzle_type === 'news_quiz' ? puzzle.content.source_headline : null
+            isNewsQuizPuzzle(puzzle) ? (puzzle.content.source_headline ?? null) : null
           }
           onClose={onLeaveResult}
         />
