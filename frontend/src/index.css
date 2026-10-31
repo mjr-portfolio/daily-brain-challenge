@@ -11,3 +11,42 @@ body {
 #root {
   min-height: 100svh;
 }
+
+@keyframes celebrate-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgb(251 191 36 / 0.45), 0 0 24px rgb(251 191 36 / 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgb(251 191 36 / 0.8), 0 0 36px rgb(251 191 36 / 0.35);
+  }
+}
+
+@keyframes celebrate-spark {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.4);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-28px) scale(1);
+  }
+}
+
+.celebrate-modal {
+  border-color: rgb(251 191 36 / 0.7);
+  animation: celebrate-glow 1.4s ease-in-out 2;
+}
+
+.celebrate-spark {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgb(251 191 36);
+  pointer-events: none;
+  animation: celebrate-spark 900ms ease-out forwards;
+}

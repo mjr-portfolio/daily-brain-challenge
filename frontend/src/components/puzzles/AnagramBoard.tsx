@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { HintCallout } from '@/components/HintCallout.tsx'
 import type { AnagramContent } from '@/types/puzzle.ts'
 
 const DEFAULT_PROMPT = 'Unscramble the letters to reveal the target word'
@@ -114,7 +115,7 @@ export function AnagramBoard({ content, disabled, onSubmit }: AnagramBoardProps)
   return (
     <div className="space-y-5">
       <p className="text-center text-slate-200">{prompt}</p>
-      {hint ? <p className="text-center text-sm text-slate-400">{hint}</p> : null}
+      {hint ? <HintCallout hint={hint} /> : null}
       <div className="flex flex-wrap justify-center gap-2" aria-label="Answer">
         {slots.map((tileId, index) => {
           const letter =
