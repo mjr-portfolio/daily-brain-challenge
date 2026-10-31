@@ -280,7 +280,8 @@ Before you fill the JSON, confirm internally that the transformation rule is ful
 Shared rules:
 - grid is 3 rows of 3 cells with exactly one null blank.
 - choices has exactly 3 distinct options, and solution equals the blank cell and is one of the choices.
-- prompt is concise. explanation names the rule clearly.
+- prompt is ignored by the app (a fixed player instruction is applied later). Put any short placeholder.
+- explanation must name the exact rule and walk through enough cells that a reader can confirm every filled cell fits. If your stated rule does not reproduce all filled cells, discard the puzzle and invent a different one.
 """
 
 SHAPE_SYSTEM = """You are a senior logic and intelligence puzzle writer for Mensa and GCHQ.
@@ -290,8 +291,16 @@ Before you fill the JSON, confirm internally that the transformation rule is ful
 Shared rules for shape puzzles:
 - grid is 4 rows of 4 cells with exactly one null blank.
 - choices has exactly 4 distinct options, and solution equals the blank cell and is one of the choices.
-- prompt is concise. explanation names the rule clearly.
+- prompt is ignored by the app (a fixed player instruction is applied later). Put any short placeholder.
+- explanation must name the exact rule and confirm the blank from that rule. If the rule does not fit the filled cells, discard and invent a different puzzle.
 """
+
+# Shown on the board. Never trust the model to write these (it often spoils the rule).
+PATTERN_BOARD_PROMPTS: dict[PatternKind, str] = {
+    "numerical": "Identify the missing number that completes the pattern.",
+    "unicode": "Identify the missing symbol to complete the pattern.",
+    "shape": "Identify the missing shape that completes the pattern.",
+}
 
 NEWS_SYSTEM = """You are a lead editor for a premier weekly global current events quiz.
 
@@ -316,13 +325,17 @@ _PATTERN_PROMPTS: dict[PatternKind, str] = {
         "Use JSON integers only. The rule must need at least two steps, such as "
         "alternating operations (+2 then ×3) or a Fibonacci-style offset. "
         "Do not use a single constant add or multiply along any row or column. "
-        "A grid such as 2 4 6 / 3 6 9 / 4 8 12 is rejected."
+        "A grid such as 2 4 6 / 3 6 9 / 4 8 12 is rejected. "
+        "Before returning JSON, verify that your explanation's rule reproduces every "
+        "filled cell; if it does not, invent a different grid and rule. "
+        "Do not put the solving rule in prompt."
     ),
     "unicode": (
         "Create one original Unicode symbol grid transformation. "
         "Every filled cell, every choice, and the solution is a short Unicode symbol "
         "string such as ▲, ■, ◯, or ➔. The rule is a rotation, reflection, or matrix "
-        "balance that is unambiguous. Do not use numbers or shape objects."
+        "balance that is unambiguous. Do not use numbers or shape objects. "
+        "Do not put the solving rule in prompt."
     ),
 }
 
@@ -352,7 +365,8 @@ def _shape_task_prompt() -> str:
         "Shape alone and color alone must not identify the answer. "
         "Forbidden: a row or column that merely contains one of each color, or one of each shape, "
         "and any rule where the missing color is the answer. "
-        "Do not use numbers or plain strings."
+        "Do not use numbers or plain strings. "
+        "Do not put the solving rule in prompt."
     )
 
 
@@ -968,7 +982,7 @@ def generate_pattern_puzzle(taken: set[str] | None = None) -> GeneratedPuzzle:
         )
     content = PatternContent(
         grid=raw.grid,
-        prompt=raw.prompt,
+        prompt=PATTERN_BOARD_PROMPTS[kind],
         choices=raw.choices,
     ).model_dump()
     solution = stored_pattern_solution(raw.solution)
