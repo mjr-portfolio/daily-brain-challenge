@@ -223,6 +223,11 @@ function DailyChallenge({
         selectedAnswer={heldAnswer}
         puzzleType={preview?.puzzle_type ?? 'pattern'}
         assignedDate={preview?.assigned_date ?? null}
+        sourceHeadline={
+          session?.puzzle.puzzle_type === 'news_quiz'
+            ? session.puzzle.content.source_headline
+            : null
+        }
         onClose={() => {
           if (heldResult == null) return
           setHeldResult(null)
@@ -364,6 +369,10 @@ function PuzzleSession({
           open={modalOpen && phase === 'submitted'}
           result={result}
           puzzleId={puzzle.id}
+          puzzleType={puzzle.puzzle_type}
+          sourceHeadline={
+            puzzle.puzzle_type === 'news_quiz' ? puzzle.content.source_headline : null
+          }
           onClose={onLeaveResult}
         />
       )}

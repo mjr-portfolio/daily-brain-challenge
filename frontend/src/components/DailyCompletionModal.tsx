@@ -41,12 +41,17 @@ function shareText(
   return lines.join('\n')
 }
 
+function newsSearchUrl(headline: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(headline)}`
+}
+
 type DailyCompletionModalProps = {
   open: boolean
   result: SubmitResult | null
   selectedAnswer: AnswerType | null
   puzzleType: string
   assignedDate: string | null
+  sourceHeadline?: string | null
   onClose: () => void
   timingNote?: string | null
 }
@@ -57,6 +62,7 @@ export function DailyCompletionModal({
   selectedAnswer,
   puzzleType,
   assignedDate,
+  sourceHeadline = null,
   onClose,
   timingNote = null,
 }: DailyCompletionModalProps) {
@@ -87,6 +93,8 @@ export function DailyCompletionModal({
       ? null
       : `Top ${Math.max(1, Math.round(100 - result.percentile))}%`
   const card = shareText(result, puzzleType, assignedDate)
+  const headline = sourceHeadline?.trim() ? sourceHeadline.trim() : null
+  const showNewsLink = puzzleType === 'news_quiz' && headline != null
 
   async function copyCard() {
     try {
@@ -99,10 +107,16 @@ export function DailyCompletionModal({
 
   let title = 'Not quite'
   if (showBoard) title = "Today's leaderboard"
-  else if (result.is_correct) title = 'Correct'
+  else if (result.is_correct) title = 'Correct!'
 
   return (
-    <ModalFrame title={title} onClose={onClose} wide>
+    <ModalFrame
+      title={title}
+      subtitle={formatAssignedDate(assignedDate)}
+      onClose={onClose}
+      wide
+      celebrate={result.is_correct && !showBoard}
+    >
       {showBoard ? (
         <>
           <LeaderboardPanel />
@@ -115,27 +129,61 @@ export function DailyCompletionModal({
           </button>
         </>
       ) : (
-        <>
-            {selectedAnswer != null ? (
-              <p className="mt-2 text-slate-300">Your answer: {formatAnswer(selectedAnswer)}</p>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatChip label="Time" value={formatTime(result.time_taken_seconds)} />
+            {result.score != null ? (
+              <StatChip label="Score" value={`${result.score}`} accent />
             ) : null}
-            <p className="mt-1 text-slate-300">
-              Correct answer: {formatAnswer(result.correct_answer)}
+            {isAuthenticated && result.streak != null ? (
+              <StatChip label="Streak" value={`${result.streak}`} accent />
+            ) : null}
+            {!isAuthenticated ? (
+              <StatChip label="Streak" value={`${guestStreak}`} accent />
+            ) : null}
+            {percentileLabel ? (
+              <StatChip label="Rank" value={percentileLabel} accent />
+            ) : null}
+          </div>
+
+          {timingNote ? <p className="text-xs text-slate-500">{timingNote}</p> : null}
+
+          <div className="rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3">
+            {selectedAnswer != null ? (
+              <p className="text-sm text-slate-400">
+                Your answer:{' '}
+                <span className="font-medium text-slate-100">
+                  {formatAnswer(selectedAnswer)}
+                </span>
+              </p>
+            ) : null}
+            <p className="mt-1 text-sm text-slate-400">
+              Correct answer:{' '}
+              <span className="font-medium text-amber-200">
+                {formatAnswer(result.correct_answer)}
+              </span>
             </p>
-            <p className="mt-2 text-slate-300">Time: {formatTime(result.time_taken_seconds)}</p>
-            {timingNote ? <p className="mt-1 text-sm text-slate-400">{timingNote}</p> : null}
-            {isAuthenticated ? (
-              <div className="mt-3 space-y-2 text-slate-200">
-                {result.score != null ? <p>Score: {result.score}</p> : null}
-                {result.streak != null ? (
-                  <p className="text-amber-300">Streak: {result.streak}</p>
-                ) : null}
-                {percentileLabel ? (
-                  <p className="text-lg font-medium text-amber-300">{percentileLabel}</p>
-                ) : null}
-                <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100">
-                  {card}
-                </pre>
+            {result.explanation ? (
+              <p className="mt-3 text-sm leading-relaxed text-slate-300">{result.explanation}</p>
+            ) : null}
+            {showNewsLink ? (
+              <a
+                href={newsSearchUrl(headline)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex text-sm font-medium text-amber-300 underline-offset-2 hover:text-amber-200 hover:underline"
+              >
+                Search this story
+              </a>
+            ) : null}
+          </div>
+
+          {isAuthenticated ? (
+            <div className="space-y-3">
+              <pre className="whitespace-pre-wrap rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100">
+                {card}
+              </pre>
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void copyCard()}
@@ -146,30 +194,48 @@ export function DailyCompletionModal({
                 <button
                   type="button"
                   onClick={() => setShowBoard(true)}
-                  className="ml-2 rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
+                  className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
                 >
                   Today&apos;s leaderboard
                 </button>
               </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <p className="text-slate-200">Streak: {guestStreak}</p>
-                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
-                  Sign up with your email to record your score, view global percentile ranks, and
-                  catch up on past daily puzzles!
-                </div>
-                <button
-                  type="button"
-                  onClick={openAuthModal}
-                  className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
-                >
-                  Sign up
-                </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
+                Sign up with your email to record your score, view global percentile ranks, and
+                catch up on past daily puzzles!
               </div>
-            )}
-            <p className="mt-4 text-sm leading-relaxed text-slate-300">{result.explanation}</p>
-          </>
-        )}
+              <button
+                type="button"
+                onClick={openAuthModal}
+                className="rounded-full border border-amber-500 bg-amber-400 px-4 py-2 text-sm font-medium text-slate-950 hover:border-slate-950"
+              >
+                Sign up
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </ModalFrame>
+  )
+}
+
+function StatChip({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string
+  value: string
+  accent?: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-0.5 text-sm font-semibold ${accent ? 'text-amber-300' : 'text-white'}`}>
+        {value}
+      </p>
+    </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { HintCallout } from '@/components/HintCallout.tsx'
 import type { NewsQuizContent } from '@/types/puzzle.ts'
 
 type NewsQuizBoardProps = {
@@ -20,7 +21,7 @@ export function NewsQuizBoard({ content, disabled, onSubmit }: NewsQuizBoardProp
         </blockquote>
       ) : null}
       <p className="text-center text-lg font-medium text-slate-100">{content.question}</p>
-      {hint ? <p className="text-center text-sm text-slate-400">{hint}</p> : null}
+      {hint ? <HintCallout hint={hint} /> : null}
       <div className="flex flex-col gap-2" role="listbox" aria-label="Answer options">
         {content.options.map((option) => {
           const active = selected === option
