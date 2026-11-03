@@ -252,6 +252,9 @@ Coverage areas include verification and scoring, daily/archive submit, guest com
 ## Known gaps
 
 - Archive benchmarks are per-puzzle, not a global historical leaderboard.
+- Stale faily UI after a long-open tab
+- Stronger pattern explanation checks
+- Real news article links instead of google searches
 - Cold queue fills are intentionally paced for Gemini free-tier RPM limits; nightly top-ups are much shorter once the horizon is warm.
 
 ---
